@@ -32,13 +32,14 @@ if 'test_submitted' not in st.session_state:
     st.session_state.test_submitted = False
 if 'student_score' not in st.session_state:
     st.session_state.student_score = 0
+if 'test_total' not in st.session_state:
+    st.session_state.test_total = 0
 
 # --- MAIN APP UI ---
 st.title("⚙️ Academic Testing Portal")
 
 if not st.session_state.logged_in:
     st.subheader("Welcome. Please select your portal:")
-    # ADDED: Admin option to the radio button
     portal = st.radio("Login as:", ["Student", "Professor", "Admin"])
 
     if portal == "Professor":
@@ -76,12 +77,11 @@ if not st.session_state.logged_in:
             else:
                 st.warning("Please enter your name.")
                 
-    # ADDED: Admin Login Flow
     elif portal == "Admin":
         st.info("System Administrator Access")
         admin_pass = st.text_input("Admin Passcode", type="password")
         if st.button("Admin Login"):
-            if admin_pass == "admin123": # Hardcoded admin password for simplicity
+            if admin_pass == "admin123": 
                 st.session_state.logged_in = True
                 st.session_state.role = "Admin"
                 st.session_state.username = "Administrator"
@@ -117,11 +117,9 @@ if st.session_state.logged_in:
                     st.write(f"👨‍🏫 **Professor ID:** {prof}")
                 with col2:
                     if st.button("Remove Account", key=f"del_prof_{prof}"):
-                        # 1. Delete the professor's account
                         del creds[prof]
                         save_data('credentials.json', creds)
                         
-                        # 2. Delete all questions created by this professor
                         questions = load_data('questions.json')
                         if isinstance(questions, list):
                             filtered_questions = [q for q in questions if q.get("professor") != prof]
@@ -137,7 +135,9 @@ if st.session_state.logged_in:
         
         with tab1:
             st.subheader("Create a Question")
-            subject = st.text_input("Subject Area (e.g., Physics, Mechanical Design)")
+            # ADDED: Department Input
+            department = st.text_input("Department (e.g., Computer Science, Mechanical)")
+            subject = st.text_input("Subject Area (e.g., Data Structures, Thermodynamics)")
             question_text = st.text_area("Question Text")
             
             col1, col2 = st.columns(2)
@@ -151,13 +151,14 @@ if st.session_state.logged_in:
             correct_answer = st.selectbox("Correct Answer", ["A", "B", "C", "D"])
             
             if st.button("Save Question"):
-                if subject and question_text and opt_a and opt_b and opt_c and opt_d:
+                if department and subject and question_text and opt_a and opt_b and opt_c and opt_d:
                     questions = load_data('questions.json')
                     if isinstance(questions, dict): 
                         questions = []
                         
                     new_q = {
                         "professor": st.session_state.username,
+                        "department": department,
                         "subject": subject,
                         "question": question_text,
                         "A": opt_a,
@@ -184,7 +185,8 @@ if st.session_state.logged_in:
                 st.info("You haven't added any questions yet.")
             else:
                 for i, q in enumerate(my_questions):
-                    with st.expander(f"Q: {q['question'][:50]}... ({q['subject']})"):
+                    dept_label = q.get('department', 'General')
+                    with st.expander(f"Q: {q['question'][:50]}... ({dept_label} - {q['subject']})"):
                         st.write(f"**A:** {q['A']}")
                         st.write(f"**B:** {q['B']}")
                         st.write(f"**C:** {q['C']}")
@@ -202,8 +204,16 @@ if st.session_state.logged_in:
             if not scores:
                 st.info("No students have completed the test yet.")
             else:
-                for student, data in scores.items():
-                    st.write(f"**{student}**: {data['score']}/{data['total']} ({data['percentage']}%)")
+                # ADDED: Department filtering for scores
+                score_depts = sorted(list(set([data.get("department", "General") for data in scores.values()])))
+                filter_dept = st.selectbox("Filter by Department:", ["All Departments"] + score_depts)
+                
+                for key, data in scores.items():
+                    dept = data.get("department", "General")
+                    student_name = data.get("student", key) 
+                    
+                    if filter_dept == "All Departments" or filter_dept == dept:
+                        st.write(f"**{student_name}** ({dept}): {data['score']}/{data['total']} ({data['percentage']}%)")
 
     # === STUDENT TEST PORTAL ===
     elif st.session_state.role == "Student":
@@ -215,44 +225,58 @@ if st.session_state.logged_in:
         
         elif st.session_state.test_submitted:
             st.success("Test Submitted Successfully!")
-            st.metric(label="Your Score", value=f"{st.session_state.student_score} / {len(questions)}")
-            if st.button("Take Test Again"):
+            st.metric(label="Your Score", value=f"{st.session_state.student_score} / {st.session_state.test_total}")
+            if st.button("Take Another Test"):
                 st.session_state.test_submitted = False
                 st.rerun()
         
         else:
-            st.write("Please select the best answer for each question.")
-            st.markdown("---")
+            # ADDED: Let students select which department test to take
+            departments = sorted(list(set([q.get("department", "General") for q in questions])))
+            selected_dept = st.selectbox("Select which department's test you want to take:", departments)
             
-            with st.form("test_form"):
-                student_answers = {}
-                for i, q in enumerate(questions):
-                    st.subheader(f"Q{i+1}: {q['question']}")
-                    options = [f"A) {q['A']}", f"B) {q['B']}", f"C) {q['C']}", f"D) {q['D']}"]
-                    choice = st.radio("Select your answer:", options, key=f"q_{i}", index=None)
-                    student_answers[i] = choice
-                    st.markdown("---")
-                    
-                submitted = st.form_submit_button("Submit Test")
+            dept_questions = [q for q in questions if q.get("department", "General") == selected_dept]
+            
+            if not dept_questions:
+                st.warning("No questions available for this department.")
+            else:
+                st.write(f"Taking test for: **{selected_dept}**")
+                st.markdown("---")
                 
-                if submitted:
-                    score = 0
-                    for i, q in enumerate(questions):
-                        ans = student_answers[i]
-                        if ans:
-                            chosen_letter = ans[0] 
-                            if chosen_letter == q['answer']:
-                                score += 1
-                                
-                    st.session_state.student_score = score
-                    st.session_state.test_submitted = True
+                with st.form("test_form"):
+                    student_answers = {}
+                    for i, q in enumerate(dept_questions):
+                        st.subheader(f"Q{i+1}: {q['question']}")
+                        options = [f"A) {q['A']}", f"B) {q['B']}", f"C) {q['C']}", f"D) {q['D']}"]
+                        choice = st.radio("Select your answer:", options, key=f"q_{i}", index=None)
+                        student_answers[i] = choice
+                        st.markdown("---")
+                        
+                    submitted = st.form_submit_button("Submit Test")
                     
-                    scores = load_data('scores.json')
-                    scores[st.session_state.username] = {
-                        "score": score,
-                        "total": len(questions),
-                        "percentage": round((score/len(questions))*100, 2) if len(questions) > 0 else 0
-                    }
-                    save_data('scores.json', scores)
-                    
-                    st.rerun()
+                    if submitted:
+                        score = 0
+                        for i, q in enumerate(dept_questions):
+                            ans = student_answers[i]
+                            if ans:
+                                chosen_letter = ans[0] 
+                                if chosen_letter == q['answer']:
+                                    score += 1
+                                    
+                        st.session_state.student_score = score
+                        st.session_state.test_total = len(dept_questions)
+                        st.session_state.test_submitted = True
+                        
+                        scores = load_data('scores.json')
+                        # Save score using a unique key so taking one department's test doesn't overwrite another
+                        score_key = f"{st.session_state.username}_{selected_dept}"
+                        scores[score_key] = {
+                            "student": st.session_state.username,
+                            "department": selected_dept,
+                            "score": score,
+                            "total": len(dept_questions),
+                            "percentage": round((score/len(dept_questions))*100, 2) if len(dept_questions) > 0 else 0
+                        }
+                        save_data('scores.json', scores)
+                        
+                        st.rerun()
