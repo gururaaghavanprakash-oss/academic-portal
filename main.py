@@ -4,6 +4,16 @@ import os
 import re
 from datetime import datetime, timedelta
 
+# --- HIDE STREAMLIT BRANDING & MENU ---
+hide_st_style = """
+            <style>
+            #MainMenu {visibility: hidden;}
+            footer {visibility: hidden;}
+            header {visibility: hidden;}
+            </style>
+            """
+st.markdown(hide_st_style, unsafe_allow_html=True)
+
 # --- DATABASE SETUP ---
 FILES = ['credentials.json', 'questions.json', 'scores.json', 'institutions.json', 'deletion_requests.json']
 for file in FILES:
@@ -195,6 +205,26 @@ if st.session_state.logged_in:
             st.session_state.institution = ""
             st.rerun()
             
+    if st.session_state.role in ["Student", "Professor"]:
+        with st.expander("⚠️ Account Settings & Privacy"):
+            st.write("If you no longer wish to use this platform, you can request complete data deletion.")
+            if st.button("Request Account Deletion", type="primary"):
+                reqs = load_data('deletion_requests.json')
+                if not isinstance(reqs, list): reqs = []
+                
+                already_requested = any(r['username'] == st.session_state.username and r['role'] == st.session_state.role for r in reqs)
+                
+                if already_requested:
+                    st.info("You already have a pending deletion request.")
+                else:
+                    reqs.append({
+                        "username": st.session_state.username,
+                        "role": st.session_state.role,
+                        "institution": st.session_state.institution
+                    })
+                    save_data('deletion_requests.json', reqs)
+                    st.success("Deletion request filed successfully. You will be removed once your administrator approves it.")
+        
     st.markdown("---")
     
     # === 1. SUPER ADMIN DASHBOARD ===
