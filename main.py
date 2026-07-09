@@ -43,8 +43,9 @@ if not st.session_state.logged_in:
     portal = st.radio("Login as:", ["Student", "Professor", "Admin"])
 
     if portal == "Professor":
-        st.info("Default setup: Enter a new passcode to register, or enter your existing passcode to log in.")
-        prof_id = st.text_input("Professor ID (Your Name)")
+        # SECURITY FIX: Removed auto-registration text and logic
+        st.info("Enter your assigned ID and passcode to log in.")
+        prof_id = st.text_input("Professor ID")
         passcode = st.text_input("Passcode", type="password")
         
         if st.button("Professor Login"):
@@ -59,9 +60,7 @@ if not st.session_state.logged_in:
                     else:
                         st.error("Incorrect passcode.")
                 else:
-                    creds[prof_id] = passcode
-                    save_data('credentials.json', creds)
-                    st.success(f"Professor {prof_id} registered! Click login again.")
+                    st.error("Account not found. Please contact the Administrator to get registered.")
             else:
                 st.warning("Please enter both ID and passcode.")
 
@@ -105,27 +104,48 @@ if st.session_state.logged_in:
     # === ADMIN DASHBOARD ===
     if st.session_state.role == "Admin":
         st.header("🛡️ System Administrator Dashboard")
-        st.subheader("Manage Professor Accounts")
         
-        creds = load_data('credentials.json')
-        if not creds:
-            st.info("No professors have registered yet.")
-        else:
-            for prof in list(creds.keys()):
-                col1, col2 = st.columns([3, 1])
-                with col1:
-                    st.write(f"👨‍🏫 **Professor ID:** {prof}")
-                with col2:
-                    if st.button("Remove Account", key=f"del_prof_{prof}"):
-                        del creds[prof]
+        # ADDED: Tabs for Admin tasks
+        admin_tab1, admin_tab2 = st.tabs(["Manage Existing Accounts", "Register New Professor"])
+        
+        with admin_tab1:
+            st.subheader("Manage Professor Accounts")
+            creds = load_data('credentials.json')
+            if not creds:
+                st.info("No professors have been registered yet.")
+            else:
+                for prof in list(creds.keys()):
+                    col1, col2 = st.columns([3, 1])
+                    with col1:
+                        st.write(f"👨‍🏫 **Professor ID:** {prof}")
+                    with col2:
+                        if st.button("Remove Account", key=f"del_prof_{prof}"):
+                            del creds[prof]
+                            save_data('credentials.json', creds)
+                            
+                            questions = load_data('questions.json')
+                            if isinstance(questions, list):
+                                filtered_questions = [q for q in questions if q.get("professor") != prof]
+                                save_data('questions.json', filtered_questions)
+                            
+                            st.rerun()
+                            
+        with admin_tab2:
+            st.subheader("Create a New Professor Account")
+            new_prof_id = st.text_input("New Professor ID (Name)")
+            new_prof_pass = st.text_input("Assign Passcode", type="password")
+            
+            if st.button("Create Account"):
+                if new_prof_id and new_prof_pass:
+                    creds = load_data('credentials.json')
+                    if new_prof_id in creds:
+                        st.warning("This Professor ID already exists. Please choose a different one.")
+                    else:
+                        creds[new_prof_id] = new_prof_pass
                         save_data('credentials.json', creds)
-                        
-                        questions = load_data('questions.json')
-                        if isinstance(questions, list):
-                            filtered_questions = [q for q in questions if q.get("professor") != prof]
-                            save_data('questions.json', filtered_questions)
-                        
-                        st.rerun()
+                        st.success(f"Professor '{new_prof_id}' added successfully! They can now log in.")
+                else:
+                    st.warning("Please fill out both the ID and the passcode fields.")
 
     # === PROFESSOR DASHBOARD ===
     elif st.session_state.role == "Professor":
@@ -135,7 +155,6 @@ if st.session_state.logged_in:
         
         with tab1:
             st.subheader("Create a Question")
-            # ADDED: Department Input
             department = st.text_input("Department (e.g., Computer Science, Mechanical)")
             subject = st.text_input("Subject Area (e.g., Data Structures, Thermodynamics)")
             question_text = st.text_area("Question Text")
@@ -204,7 +223,6 @@ if st.session_state.logged_in:
             if not scores:
                 st.info("No students have completed the test yet.")
             else:
-                # ADDED: Department filtering for scores
                 score_depts = sorted(list(set([data.get("department", "General") for data in scores.values()])))
                 filter_dept = st.selectbox("Filter by Department:", ["All Departments"] + score_depts)
                 
@@ -231,7 +249,6 @@ if st.session_state.logged_in:
                 st.rerun()
         
         else:
-            # ADDED: Let students select which department test to take
             departments = sorted(list(set([q.get("department", "General") for q in questions])))
             selected_dept = st.selectbox("Select which department's test you want to take:", departments)
             
@@ -268,7 +285,6 @@ if st.session_state.logged_in:
                         st.session_state.test_submitted = True
                         
                         scores = load_data('scores.json')
-                        # Save score using a unique key so taking one department's test doesn't overwrite another
                         score_key = f"{st.session_state.username}_{selected_dept}"
                         scores[score_key] = {
                             "student": st.session_state.username,
