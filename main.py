@@ -27,6 +27,7 @@ def process_expired_deletions():
     insts = load_data('institutions.json')
     creds = load_data('credentials.json')
     qs = load_data('questions.json')
+    if not isinstance(qs, list): qs = []
     scores = load_data('scores.json')
     changed = False
     
@@ -199,6 +200,8 @@ if st.session_state.logged_in:
             st.write("If you no longer wish to use this platform, you can request complete data deletion.")
             if st.button("Request Account Deletion", type="primary"):
                 reqs = load_data('deletion_requests.json')
+                if not isinstance(reqs, list): reqs = []
+                
                 already_requested = any(r['username'] == st.session_state.username and r['role'] == st.session_state.role for r in reqs)
                 
                 if already_requested:
@@ -264,6 +267,7 @@ if st.session_state.logged_in:
                             save_data('credentials.json', creds)
                             
                             qs = load_data('questions.json')
+                            if not isinstance(qs, list): qs = []
                             save_data('questions.json', [q for q in qs if q.get("institution") != k])
                             
                             scores = load_data('scores.json')
@@ -272,6 +276,8 @@ if st.session_state.logged_in:
                             
         with sa_tab3:
             reqs = load_data('deletion_requests.json')
+            if not isinstance(reqs, list): reqs = []
+            
             admin_reqs = [r for r in reqs if r['role'] == "Admin"]
             if not admin_reqs:
                 st.info("No institution deletion requests pending.")
@@ -326,6 +332,7 @@ if st.session_state.logged_in:
                                 del creds[prof]
                                 save_data('credentials.json', creds)
                                 questions = load_data('questions.json')
+                                if not isinstance(questions, list): questions = []
                                 save_data('questions.json', [q for q in questions if not (q.get("professor") == prof and q.get("institution") == st.session_state.institution)])
                                 st.rerun()
                                 
@@ -353,6 +360,8 @@ if st.session_state.logged_in:
                 if st.button("Submit Deletion Request", type="primary"):
                     if confirm_del:
                         reqs = load_data('deletion_requests.json')
+                        if not isinstance(reqs, list): reqs = []
+                        
                         already = any(r['username'] == st.session_state.institution and r['role'] == "Admin" for r in reqs)
                         if already:
                             st.info("Your request is already pending SuperAdmin approval.")
@@ -391,6 +400,11 @@ if st.session_state.logged_in:
             if st.button("Save Question"):
                 if department and subject and question_text and opt_a and opt_b and opt_c and opt_d:
                     questions = load_data('questions.json')
+                    
+                    # --- FIX APPLIED HERE ---
+                    if not isinstance(questions, list): 
+                        questions = []
+                        
                     new_q = {
                         "professor": st.session_state.username, "institution": st.session_state.institution,
                         "department": department, "subject": subject, "question": question_text,
@@ -404,6 +418,8 @@ if st.session_state.logged_in:
                     
         with tab2:
             questions = load_data('questions.json')
+            if not isinstance(questions, list): questions = []
+            
             my_questions = [q for q in questions if q.get("professor") == st.session_state.username and q.get("institution") == st.session_state.institution]
             if not my_questions:
                 st.info("You haven't added any questions yet.")
@@ -430,7 +446,6 @@ if st.session_state.logged_in:
                 score_depts = sorted(list(set([data.get("department", "General") for data in inst_scores.values()])))
                 filter_dept = st.selectbox("Filter by Department:", ["All Departments"] + score_depts)
                 
-                # --- CSV BUILDER ---
                 csv_data = "Student Name,Department,Score,Total,Percentage%\n"
                 has_data = False
                 
@@ -440,7 +455,6 @@ if st.session_state.logged_in:
                     if filter_dept == "All Departments" or filter_dept == dept:
                         st.write(f"**{student_name}** ({dept}): {data['score']}/{data['total']} ({data['percentage']}%)")
                         
-                        # Add row to CSV
                         csv_data += f"{student_name},{dept},{data['score']},{data['total']},{data['percentage']}\n"
                         has_data = True
                 
@@ -457,6 +471,8 @@ if st.session_state.logged_in:
         st.header(f"🎓 {st.session_state.institution} Test Portal")
         
         questions = load_data('questions.json')
+        if not isinstance(questions, list): questions = []
+        
         inst_questions = [q for q in questions if q.get("institution") == st.session_state.institution]
         
         if not inst_questions:
