@@ -24,7 +24,6 @@ def save_data(filename, data):
         json.dump(data, f, indent=4)
 
 def process_expired_deletions():
-    """Checks for institutions past their 3-day grace period and deletes them."""
     insts = load_data('institutions.json')
     creds = load_data('credentials.json')
     qs = load_data('questions.json')
@@ -43,7 +42,6 @@ def process_expired_deletions():
     for k in keys_to_delete:
         changed = True
         del insts[k]
-        # Cascade Delete
         creds = {p: data for p, data in creds.items() if not (isinstance(data, dict) and data.get("institution") == k)}
         qs = [q for q in qs if q.get("institution") != k]
         scores = {s: data for s, data in scores.items() if data.get("institution") != k}
@@ -70,7 +68,6 @@ if 'student_score' not in st.session_state:
 if 'test_total' not in st.session_state:
     st.session_state.test_total = 0
 
-# Run the cleanup engine every time the app loads
 process_expired_deletions()
 
 # --- MAIN APP UI ---
@@ -137,7 +134,6 @@ if not st.session_state.logged_in:
                 insts = load_data('institutions.json')
                 if admin_id in insts:
                     if insts[admin_id]["password"] == admin_pass:
-                        # Allow login if approved OR if in the 3-day grace period
                         if insts[admin_id]["status"] in ["approved", "scheduled_for_deletion"]:
                             st.session_state.logged_in = True
                             st.session_state.role = "Admin"
@@ -198,7 +194,6 @@ if st.session_state.logged_in:
             st.session_state.institution = ""
             st.rerun()
             
-    # --- INDIVIDUAL DATA DELETION REQUEST UI (Student/Prof) ---
     if st.session_state.role in ["Student", "Professor"]:
         with st.expander("⚠️ Account Settings & Privacy"):
             st.write("If you no longer wish to use this platform, you can request complete data deletion.")
@@ -301,7 +296,6 @@ if st.session_state.logged_in:
         insts = load_data('institutions.json')
         my_inst = insts.get(st.session_state.institution)
         
-        # Check if they are in the 3-day deletion window
         if my_inst and my_inst.get("status") == "scheduled_for_deletion":
             st.error("🚨 ACCOUNT SCHEDULED FOR DELETION 🚨")
             st.write(f"Your institution and all associated data is scheduled to be permanently deleted on **{my_inst.get('deletion_date')}**.")
@@ -313,11 +307,8 @@ if st.session_state.logged_in:
                 save_data('institutions.json', insts)
                 st.success("Deletion request cancelled successfully. Full access restored.")
                 st.rerun()
-                
-        # Normal Admin Dashboard
         else:
             st.header(f"🛡️ {st.session_state.institution} Admin Dashboard")
-            
             admin_tab1, admin_tab2, admin_tab3 = st.tabs(["Manage Existing Professors", "Register New Professor", "Account Settings"])
             
             with admin_tab1:
@@ -438,11 +429,28 @@ if st.session_state.logged_in:
             else:
                 score_depts = sorted(list(set([data.get("department", "General") for data in inst_scores.values()])))
                 filter_dept = st.selectbox("Filter by Department:", ["All Departments"] + score_depts)
+                
+                # --- CSV BUILDER ---
+                csv_data = "Student Name,Department,Score,Total,Percentage%\n"
+                has_data = False
+                
                 for key, data in inst_scores.items():
                     dept = data.get("department", "General")
                     student_name = data.get("student", key) 
                     if filter_dept == "All Departments" or filter_dept == dept:
                         st.write(f"**{student_name}** ({dept}): {data['score']}/{data['total']} ({data['percentage']}%)")
+                        
+                        # Add row to CSV
+                        csv_data += f"{student_name},{dept},{data['score']},{data['total']},{data['percentage']}\n"
+                        has_data = True
+                
+                if has_data:
+                    st.download_button(
+                        label="📥 Download Report (CSV)",
+                        data=csv_data,
+                        file_name=f"{st.session_state.institution}_test_report_{filter_dept.replace(' ', '_')}.csv",
+                        mime="text/csv"
+                    )
 
     # === 4. STUDENT TEST PORTAL ===
     elif st.session_state.role == "Student":
