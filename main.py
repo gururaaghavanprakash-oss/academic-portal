@@ -5,7 +5,6 @@ import re
 from datetime import datetime, timedelta
 
 # --- CUSTOM UI STYLING ---
-# This hides the footer but keeps the header and the three-dot menu active!
 hide_st_style = """
             <style>
             footer {visibility: hidden;}
@@ -205,7 +204,7 @@ if st.session_state.logged_in:
             st.session_state.username = ""
             st.session_state.institution = ""
             st.rerun()
-        
+            
     st.markdown("---")
     
     # === 1. SUPER ADMIN DASHBOARD ===
@@ -427,32 +426,57 @@ if st.session_state.logged_in:
                             save_data('questions.json', questions)
                             st.rerun()
                             
+        # --- NEW ADVANCED REPORTING SECTION ---
         with tab3:
             scores = load_data('scores.json')
             inst_scores = {k: v for k, v in scores.items() if v.get("institution") == st.session_state.institution}
+            
             if not inst_scores:
                 st.info("No students have completed tests yet.")
             else:
                 score_depts = sorted(list(set([data.get("department", "General") for data in inst_scores.values()])))
                 filter_dept = st.selectbox("Filter by Department:", ["All Departments"] + score_depts)
                 
-                csv_data = "Student Name,Department,Score,Total,Percentage%\n"
-                has_data = False
-                
+                # Filter the data first to calculate metrics
+                filtered_scores = {}
                 for key, data in inst_scores.items():
-                    dept = data.get("department", "General")
-                    student_name = data.get("student", key) 
-                    if filter_dept == "All Departments" or filter_dept == dept:
+                    if filter_dept == "All Departments" or data.get("department", "General") == filter_dept:
+                        filtered_scores[key] = data
+                
+                if not filtered_scores:
+                    st.info("No scores found for this filter.")
+                else:
+                    # Calculate Dashboard Metrics
+                    percentages = [d['percentage'] for d in filtered_scores.values()]
+                    avg_score = round(sum(percentages) / len(percentages), 1)
+                    high_score = max(percentages)
+                    
+                    # Display Dashboard UI
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        st.metric("Total Tests Taken", len(percentages))
+                    with col2:
+                        st.metric("Average Score", f"{avg_score}%")
+                    with col3:
+                        st.metric("Highest Score", f"{high_score}%")
+                        
+                    st.markdown("---")
+                    
+                    csv_data = "Student Name,Department,Score,Total,Percentage%\n"
+                    
+                    for key, data in filtered_scores.items():
+                        dept = data.get("department", "General")
+                        student_name = data.get("student", key) 
                         st.write(f"**{student_name}** ({dept}): {data['score']}/{data['total']} ({data['percentage']}%)")
                         
                         csv_data += f"{student_name},{dept},{data['score']},{data['total']},{data['percentage']}\n"
-                        has_data = True
-                
-                if has_data:
+                    
+                    # Add current date to the file download name
+                    current_date = datetime.now().strftime("%Y-%m-%d")
                     st.download_button(
                         label="📥 Download Report (CSV)",
                         data=csv_data,
-                        file_name=f"{st.session_state.institution}_test_report_{filter_dept.replace(' ', '_')}.csv",
+                        file_name=f"Report_{filter_dept.replace(' ', '_')}_{current_date}.csv",
                         mime="text/csv"
                     )
 
