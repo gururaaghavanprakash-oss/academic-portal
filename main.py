@@ -2,13 +2,14 @@ import streamlit as st
 import json
 import os
 import re
+from datetime import datetime, timedelta
 
 # --- DATABASE SETUP ---
-FILES = ['credentials.json', 'questions.json', 'scores.json', 'institutions.json']
+FILES = ['credentials.json', 'questions.json', 'scores.json', 'institutions.json', 'deletion_requests.json']
 for file in FILES:
     if not os.path.exists(file):
         with open(file, 'w') as f:
-            if file == 'questions.json':
+            if file in ['questions.json', 'deletion_requests.json']:
                 json.dump([], f)
             else:
                 json.dump({}, f)
@@ -21,6 +22,37 @@ def load_data(filename):
 def save_data(filename, data):
     with open(filename, 'w') as f:
         json.dump(data, f, indent=4)
+
+def process_expired_deletions():
+    """Checks for institutions past their 3-day grace period and deletes them."""
+    insts = load_data('institutions.json')
+    creds = load_data('credentials.json')
+    qs = load_data('questions.json')
+    scores = load_data('scores.json')
+    changed = False
+    
+    now = datetime.now()
+    keys_to_delete = []
+    
+    for k, v in insts.items():
+        if v.get("status") == "scheduled_for_deletion" and "deletion_date" in v:
+            del_date = datetime.strptime(v["deletion_date"], "%Y-%m-%d %H:%M:%S")
+            if now >= del_date:
+                keys_to_delete.append(k)
+    
+    for k in keys_to_delete:
+        changed = True
+        del insts[k]
+        # Cascade Delete
+        creds = {p: data for p, data in creds.items() if not (isinstance(data, dict) and data.get("institution") == k)}
+        qs = [q for q in qs if q.get("institution") != k]
+        scores = {s: data for s, data in scores.items() if data.get("institution") != k}
+        
+    if changed:
+        save_data('institutions.json', insts)
+        save_data('credentials.json', creds)
+        save_data('questions.json', qs)
+        save_data('scores.json', scores)
 
 # --- SESSION STATE ---
 if 'logged_in' not in st.session_state:
@@ -38,6 +70,9 @@ if 'student_score' not in st.session_state:
 if 'test_total' not in st.session_state:
     st.session_state.test_total = 0
 
+# Run the cleanup engine every time the app loads
+process_expired_deletions()
+
 # --- MAIN APP UI ---
 st.title("⚙️ Academic Testing Portal")
 
@@ -45,7 +80,6 @@ if not st.session_state.logged_in:
     st.subheader("Welcome. Please select your portal:")
     portal = st.radio("Login as:", ["Student", "Professor", "Admin"])
 
-    # 1. PROFESSOR LOGIN
     if portal == "Professor":
         st.info("Enter your assigned ID and passcode to log in.")
         prof_id = st.text_input("Professor ID")
@@ -68,7 +102,6 @@ if not st.session_state.logged_in:
             else:
                 st.warning("Please enter both ID and passcode.")
 
-    # 2. STUDENT LOGIN
     elif portal == "Student":
         insts = load_data('institutions.json')
         approved_insts = [k for k, v in insts.items() if v.get("status") == "approved"]
@@ -89,7 +122,6 @@ if not st.session_state.logged_in:
                 else:
                     st.warning("Please enter your name.")
                 
-    # 3. ADMIN / SUPER ADMIN LOGIN
     elif portal == "Admin":
         st.info("Administrative Access Portal")
         admin_id = st.text_input("Admin ID")
@@ -97,20 +129,19 @@ if not st.session_state.logged_in:
         
         if st.button("Admin Login"):
             if admin_id == "ADMIN" and admin_pass == "ATP2026":
-                # SUPER ADMIN
                 st.session_state.logged_in = True
                 st.session_state.role = "SuperAdmin"
                 st.session_state.username = "Platform Administrator"
                 st.rerun()
             else:
-                # INSTITUTION ADMIN
                 insts = load_data('institutions.json')
                 if admin_id in insts:
                     if insts[admin_id]["password"] == admin_pass:
-                        if insts[admin_id]["status"] == "approved":
+                        # Allow login if approved OR if in the 3-day grace period
+                        if insts[admin_id]["status"] in ["approved", "scheduled_for_deletion"]:
                             st.session_state.logged_in = True
                             st.session_state.role = "Admin"
-                            st.session_state.username = insts[admin_id]["contact"]
+                            st.session_state.username = admin_id 
                             st.session_state.institution = admin_id
                             st.rerun()
                         else:
@@ -118,9 +149,8 @@ if not st.session_state.logged_in:
                     else:
                         st.error("Incorrect password.")
                 else:
-                    st.error("Admin ID not found.")
+                    st.error("Admin ID not found or account has been permanently deleted.")
 
-    # --- INSTITUTION REGISTRATION ---
     st.markdown("---")
     with st.expander("Register a School/College/University"):
         st.write("Submit your institution for approval to use the platform.")
@@ -132,10 +162,9 @@ if not st.session_state.logged_in:
         
         if st.button("Submit Registration Request"):
             if inst_name and contact_name and inst_email and inst_pass:
-                # Generate Admin ID (All caps, spaces to underscores)
                 generated_id = re.sub(r'[^A-Z0-9]', '_', inst_name.upper())
-                
                 insts = load_data('institutions.json')
+                
                 if generated_id in insts:
                     st.error(f"An institution with a similar name ({generated_id}) is already registered.")
                 else:
@@ -153,7 +182,6 @@ if not st.session_state.logged_in:
             else:
                 st.warning("Please fill in all required fields.")
 
-
 # --- DASHBOARDS ---
 if st.session_state.logged_in:
     col_a, col_b = st.columns([4, 1])
@@ -161,7 +189,7 @@ if st.session_state.logged_in:
         if st.session_state.role == "SuperAdmin":
             st.success(f"Logged in as: {st.session_state.username} (God Mode)")
         else:
-            st.success(f"Logged in as: {st.session_state.username} | Role: {st.session_state.role} | Institution: {st.session_state.institution}")
+            st.success(f"Logged in as: {st.session_state.username} | Role: {st.session_state.role} | Inst: {st.session_state.institution}")
     with col_b:
         if st.button("Log Out"):
             st.session_state.logged_in = False
@@ -169,6 +197,25 @@ if st.session_state.logged_in:
             st.session_state.username = ""
             st.session_state.institution = ""
             st.rerun()
+            
+    # --- INDIVIDUAL DATA DELETION REQUEST UI (Student/Prof) ---
+    if st.session_state.role in ["Student", "Professor"]:
+        with st.expander("⚠️ Account Settings & Privacy"):
+            st.write("If you no longer wish to use this platform, you can request complete data deletion.")
+            if st.button("Request Account Deletion", type="primary"):
+                reqs = load_data('deletion_requests.json')
+                already_requested = any(r['username'] == st.session_state.username and r['role'] == st.session_state.role for r in reqs)
+                
+                if already_requested:
+                    st.info("You already have a pending deletion request.")
+                else:
+                    reqs.append({
+                        "username": st.session_state.username,
+                        "role": st.session_state.role,
+                        "institution": st.session_state.institution
+                    })
+                    save_data('deletion_requests.json', reqs)
+                    st.success("Deletion request filed successfully. You will be removed once your administrator approves it.")
         
     st.markdown("---")
     
@@ -176,21 +223,17 @@ if st.session_state.logged_in:
     if st.session_state.role == "SuperAdmin":
         st.header("👑 Platform Administrator Dashboard")
         
-        sa_tab1, sa_tab2 = st.tabs(["Pending Registrations", "Manage Active Institutions"])
+        sa_tab1, sa_tab2, sa_tab3 = st.tabs(["Pending Registrations", "Manage Active Institutions", "Institution Deletion Requests"])
         insts = load_data('institutions.json')
         
         with sa_tab1:
-            st.subheader("Awaiting Approval")
             pending = {k: v for k, v in insts.items() if v.get("status") == "pending"}
             if not pending:
                 st.info("No pending registrations.")
             else:
                 for k, v in pending.items():
                     with st.expander(f"🏫 {v['institute_name']} (ID: {k})"):
-                        st.write(f"**Contact:** {v['contact']}")
-                        st.write(f"**Email:** {v['email']}")
-                        st.write(f"**Phone:** {v['phone']}")
-                        
+                        st.write(f"**Contact:** {v['contact']} | **Email:** {v['email']} | **Phone:** {v['phone']}")
                         col1, col2 = st.columns(2)
                         with col1:
                             if st.button("Approve", key=f"app_{k}"):
@@ -204,90 +247,134 @@ if st.session_state.logged_in:
                                 st.rerun()
                                 
         with sa_tab2:
-            st.subheader("Active Institutions")
-            approved = {k: v for k, v in insts.items() if v.get("status") == "approved"}
+            approved = {k: v for k, v in insts.items() if v.get("status") in ["approved", "scheduled_for_deletion"]}
             if not approved:
                 st.info("No approved institutions yet.")
             else:
                 for k, v in approved.items():
                     col1, col2 = st.columns([3, 1])
                     with col1:
-                        st.write(f"**{v['institute_name']}** (Admin ID: {k})")
+                        if v.get("status") == "scheduled_for_deletion":
+                            st.write(f"⚠️ **{v['institute_name']}** (Admin ID: {k}) - *Pending Auto-Delete on {v.get('deletion_date')}*")
+                        else:
+                            st.write(f"**{v['institute_name']}** (Admin ID: {k})")
                     with col2:
-                        if st.button("Remove Institution", key=f"del_inst_{k}"):
-                            # 1. Delete Institution
+                        if st.button("Force Remove Immediately", key=f"force_del_{k}"):
                             del insts[k]
                             save_data('institutions.json', insts)
                             
-                            # 2. Cascade Delete Professors
                             creds = load_data('credentials.json')
-                            keys_to_delete = [p for p, data in creds.items() if isinstance(data, dict) and data.get("institution") == k]
-                            for p in keys_to_delete:
+                            for p in [p for p, data in creds.items() if isinstance(data, dict) and data.get("institution") == k]:
                                 del creds[p]
                             save_data('credentials.json', creds)
                             
-                            # 3. Cascade Delete Questions
                             qs = load_data('questions.json')
-                            qs = [q for q in qs if q.get("institution") != k]
-                            save_data('questions.json', qs)
+                            save_data('questions.json', [q for q in qs if q.get("institution") != k])
                             
-                            # 4. Cascade Delete Scores
                             scores = load_data('scores.json')
-                            scores = {s: data for s, data in scores.items() if data.get("institution") != k}
-                            save_data('scores.json', scores)
-                            
+                            save_data('scores.json', {s: data for s, data in scores.items() if data.get("institution") != k})
                             st.rerun()
+                            
+        with sa_tab3:
+            reqs = load_data('deletion_requests.json')
+            admin_reqs = [r for r in reqs if r['role'] == "Admin"]
+            if not admin_reqs:
+                st.info("No institution deletion requests pending.")
+            else:
+                for r in admin_reqs:
+                    inst_id = r['username']
+                    st.warning(f"Institution **{inst_id}** has requested platform deletion.")
+                    if st.button("Approve Request & Start 3-Day Countdown", key=f"wipe_{inst_id}"):
+                        if inst_id in insts:
+                            insts[inst_id]["status"] = "scheduled_for_deletion"
+                            del_date = datetime.now() + timedelta(days=3)
+                            insts[inst_id]["deletion_date"] = del_date.strftime("%Y-%m-%d %H:%M:%S")
+                            save_data('institutions.json', insts)
+                        
+                        reqs.remove(r)
+                        save_data('deletion_requests.json', reqs)
+                        st.success(f"Countdown started for {inst_id}.")
+                        st.rerun()
 
     # === 2. INSTITUTION ADMIN DASHBOARD ===
     elif st.session_state.role == "Admin":
-        st.header(f"🛡️ {st.session_state.institution} Admin Dashboard")
+        insts = load_data('institutions.json')
+        my_inst = insts.get(st.session_state.institution)
         
-        admin_tab1, admin_tab2 = st.tabs(["Manage Existing Professors", "Register New Professor"])
-        
-        with admin_tab1:
-            st.subheader("Manage Professor Accounts")
-            creds = load_data('credentials.json')
+        # Check if they are in the 3-day deletion window
+        if my_inst and my_inst.get("status") == "scheduled_for_deletion":
+            st.error("🚨 ACCOUNT SCHEDULED FOR DELETION 🚨")
+            st.write(f"Your institution and all associated data is scheduled to be permanently deleted on **{my_inst.get('deletion_date')}**.")
+            st.write("If you want to cancel the request and recover your account, click the button below.")
             
-            # Filter profs belonging to this admin's institution
-            inst_profs = {p: data for p, data in creds.items() if isinstance(data, dict) and data.get("institution") == st.session_state.institution}
+            if st.button("Cancel Deletion Request & Recover Account", type="primary"):
+                insts[st.session_state.institution]["status"] = "approved"
+                del insts[st.session_state.institution]["deletion_date"]
+                save_data('institutions.json', insts)
+                st.success("Deletion request cancelled successfully. Full access restored.")
+                st.rerun()
+                
+        # Normal Admin Dashboard
+        else:
+            st.header(f"🛡️ {st.session_state.institution} Admin Dashboard")
             
-            if not inst_profs:
-                st.info("You haven't registered any professors yet.")
-            else:
-                for prof in list(inst_profs.keys()):
-                    col1, col2 = st.columns([3, 1])
-                    with col1:
-                        st.write(f"👨‍🏫 **Professor ID:** {prof}")
-                    with col2:
-                        if st.button("Remove Account", key=f"del_prof_{prof}"):
-                            del creds[prof]
-                            save_data('credentials.json', creds)
-                            
-                            questions = load_data('questions.json')
-                            filtered_questions = [q for q in questions if not (q.get("professor") == prof and q.get("institution") == st.session_state.institution)]
-                            save_data('questions.json', filtered_questions)
-                            
-                            st.rerun()
-                            
-        with admin_tab2:
-            st.subheader("Create a New Professor Account")
-            new_prof_id = st.text_input("New Professor ID (Name)")
-            new_prof_pass = st.text_input("Assign Passcode", type="password")
+            admin_tab1, admin_tab2, admin_tab3 = st.tabs(["Manage Existing Professors", "Register New Professor", "Account Settings"])
             
-            if st.button("Create Account"):
-                if new_prof_id and new_prof_pass:
-                    creds = load_data('credentials.json')
-                    if new_prof_id in creds:
-                        st.warning("This Professor ID already exists globally. Please add a unique identifier (like a last name).")
-                    else:
-                        creds[new_prof_id] = {
-                            "passcode": new_prof_pass,
-                            "institution": st.session_state.institution
-                        }
-                        save_data('credentials.json', creds)
-                        st.success(f"Professor '{new_prof_id}' added successfully!")
+            with admin_tab1:
+                creds = load_data('credentials.json')
+                inst_profs = {p: data for p, data in creds.items() if isinstance(data, dict) and data.get("institution") == st.session_state.institution}
+                if not inst_profs:
+                    st.info("You haven't registered any professors yet.")
                 else:
-                    st.warning("Please fill out both the ID and the passcode fields.")
+                    for prof in list(inst_profs.keys()):
+                        col1, col2 = st.columns([3, 1])
+                        with col1:
+                            st.write(f"👨‍🏫 **Professor ID:** {prof}")
+                        with col2:
+                            if st.button("Remove Account", key=f"del_prof_{prof}"):
+                                del creds[prof]
+                                save_data('credentials.json', creds)
+                                questions = load_data('questions.json')
+                                save_data('questions.json', [q for q in questions if not (q.get("professor") == prof and q.get("institution") == st.session_state.institution)])
+                                st.rerun()
+                                
+            with admin_tab2:
+                new_prof_id = st.text_input("New Professor ID (Name)")
+                new_prof_pass = st.text_input("Assign Passcode", type="password")
+                if st.button("Create Account"):
+                    if new_prof_id and new_prof_pass:
+                        creds = load_data('credentials.json')
+                        if new_prof_id in creds:
+                            st.warning("This ID exists. Please add a unique identifier (like a last name).")
+                        else:
+                            creds[new_prof_id] = {"passcode": new_prof_pass, "institution": st.session_state.institution}
+                            save_data('credentials.json', creds)
+                            st.success(f"Professor '{new_prof_id}' added successfully!")
+                    else:
+                        st.warning("Please fill out both the ID and the passcode fields.")
+                        
+            with admin_tab3:
+                st.subheader("Institution Account Deletion")
+                st.warning("The account will be deleted in the due date of THREE DAYS once the platform administrator approved your deletion request. If you want to cancel the request, Login using admin id and password provided to your institution within the due date.")
+                
+                confirm_del = st.checkbox("I have read the disclaimer and confirm my request.")
+                
+                if st.button("Submit Deletion Request", type="primary"):
+                    if confirm_del:
+                        reqs = load_data('deletion_requests.json')
+                        already = any(r['username'] == st.session_state.institution and r['role'] == "Admin" for r in reqs)
+                        if already:
+                            st.info("Your request is already pending SuperAdmin approval.")
+                        else:
+                            reqs.append({
+                                "username": st.session_state.institution,
+                                "role": "Admin",
+                                "institution": st.session_state.institution
+                            })
+                            save_data('deletion_requests.json', reqs)
+                            st.success("Request sent to Platform Administrator.")
+                    else:
+                        st.error("Please check the confirmation box to proceed.")
 
     # === 3. PROFESSOR DASHBOARD ===
     elif st.session_state.role == "Professor":
@@ -296,7 +383,6 @@ if st.session_state.logged_in:
         tab1, tab2, tab3 = st.tabs(["Add New Question", "Manage Question Bank", "Student Scores"])
         
         with tab1:
-            st.subheader("Create a Question")
             department = st.text_input("Department (e.g., Computer Science, Mechanical)")
             subject = st.text_input("Subject Area")
             question_text = st.text_area("Question Text")
@@ -314,20 +400,10 @@ if st.session_state.logged_in:
             if st.button("Save Question"):
                 if department and subject and question_text and opt_a and opt_b and opt_c and opt_d:
                     questions = load_data('questions.json')
-                    if isinstance(questions, dict): 
-                        questions = []
-                        
                     new_q = {
-                        "professor": st.session_state.username,
-                        "institution": st.session_state.institution,
-                        "department": department,
-                        "subject": subject,
-                        "question": question_text,
-                        "A": opt_a,
-                        "B": opt_b,
-                        "C": opt_c,
-                        "D": opt_d,
-                        "answer": correct_answer
+                        "professor": st.session_state.username, "institution": st.session_state.institution,
+                        "department": department, "subject": subject, "question": question_text,
+                        "A": opt_a, "B": opt_b, "C": opt_c, "D": opt_d, "answer": correct_answer
                     }
                     questions.append(new_q)
                     save_data('questions.json', questions)
@@ -336,11 +412,8 @@ if st.session_state.logged_in:
                     st.warning("Please fill out all fields before saving.")
                     
         with tab2:
-            st.subheader("Your Question Bank")
             questions = load_data('questions.json')
-            
             my_questions = [q for q in questions if q.get("professor") == st.session_state.username and q.get("institution") == st.session_state.institution]
-            
             if not my_questions:
                 st.info("You haven't added any questions yet.")
             else:
@@ -352,28 +425,22 @@ if st.session_state.logged_in:
                         st.write(f"**C:** {q['C']}")
                         st.write(f"**D:** {q['D']}")
                         st.success(f"**Correct Answer:** {q['answer']}")
-                        
                         if st.button("Delete Question", key=f"del_{i}"):
                             questions.remove(q)
                             save_data('questions.json', questions)
                             st.rerun()
                             
         with tab3:
-            st.subheader("Test Results")
             scores = load_data('scores.json')
-            
             inst_scores = {k: v for k, v in scores.items() if v.get("institution") == st.session_state.institution}
-            
             if not inst_scores:
                 st.info("No students have completed tests yet.")
             else:
                 score_depts = sorted(list(set([data.get("department", "General") for data in inst_scores.values()])))
                 filter_dept = st.selectbox("Filter by Department:", ["All Departments"] + score_depts)
-                
                 for key, data in inst_scores.items():
                     dept = data.get("department", "General")
                     student_name = data.get("student", key) 
-                    
                     if filter_dept == "All Departments" or filter_dept == dept:
                         st.write(f"**{student_name}** ({dept}): {data['score']}/{data['total']} ({data['percentage']}%)")
 
@@ -382,23 +449,19 @@ if st.session_state.logged_in:
         st.header(f"🎓 {st.session_state.institution} Test Portal")
         
         questions = load_data('questions.json')
-        # Filter questions to ONLY this student's institution
         inst_questions = [q for q in questions if q.get("institution") == st.session_state.institution]
         
         if not inst_questions:
             st.info("Your professors haven't added any questions yet.")
-        
         elif st.session_state.test_submitted:
             st.success("Test Submitted Successfully!")
             st.metric(label="Your Score", value=f"{st.session_state.student_score} / {st.session_state.test_total}")
             if st.button("Take Another Test"):
                 st.session_state.test_submitted = False
                 st.rerun()
-        
         else:
             departments = sorted(list(set([q.get("department", "General") for q in inst_questions])))
             selected_dept = st.selectbox("Select your department:", departments)
-            
             dept_questions = [q for q in inst_questions if q.get("department", "General") == selected_dept]
             
             if not dept_questions:
@@ -406,7 +469,6 @@ if st.session_state.logged_in:
             else:
                 st.write(f"Taking test for: **{selected_dept}**")
                 st.markdown("---")
-                
                 with st.form("test_form"):
                     student_answers = {}
                     for i, q in enumerate(dept_questions):
@@ -417,22 +479,18 @@ if st.session_state.logged_in:
                         st.markdown("---")
                         
                     submitted = st.form_submit_button("Submit Test")
-                    
                     if submitted:
                         score = 0
                         for i, q in enumerate(dept_questions):
                             ans = student_answers[i]
                             if ans:
-                                chosen_letter = ans[0] 
-                                if chosen_letter == q['answer']:
-                                    score += 1
+                                if ans[0] == q['answer']: score += 1
                                     
                         st.session_state.student_score = score
                         st.session_state.test_total = len(dept_questions)
                         st.session_state.test_submitted = True
                         
                         scores = load_data('scores.json')
-                        # Save unique score string to keep universities from overwriting each other
                         score_key = f"{st.session_state.institution}_{st.session_state.username}_{selected_dept}"
                         scores[score_key] = {
                             "student": st.session_state.username,
@@ -443,5 +501,4 @@ if st.session_state.logged_in:
                             "percentage": round((score/len(dept_questions))*100, 2) if len(dept_questions) > 0 else 0
                         }
                         save_data('scores.json', scores)
-                        
                         st.rerun()
