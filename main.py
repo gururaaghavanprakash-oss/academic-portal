@@ -7,7 +7,6 @@ FILES = ['credentials.json', 'questions.json', 'scores.json']
 for file in FILES:
     if not os.path.exists(file):
         with open(file, 'w') as f:
-            # Questions need to be a list, others can be dictionaries
             if file == 'questions.json':
                 json.dump([], f)
             else:
@@ -29,6 +28,10 @@ if 'role' not in st.session_state:
     st.session_state.role = None
 if 'username' not in st.session_state:
     st.session_state.username = ""
+if 'test_submitted' not in st.session_state:
+    st.session_state.test_submitted = False
+if 'student_score' not in st.session_state:
+    st.session_state.student_score = 0
 
 # --- MAIN APP UI ---
 st.title("⚙️ Academic Testing Portal")
@@ -67,6 +70,7 @@ if not st.session_state.logged_in:
                 st.session_state.logged_in = True
                 st.session_state.role = "Student"
                 st.session_state.username = student_name
+                st.session_state.test_submitted = False
                 st.rerun()
             else:
                 st.warning("Please enter your name.")
@@ -79,16 +83,16 @@ if st.session_state.logged_in:
         st.session_state.logged_in = False
         st.session_state.role = None
         st.session_state.username = ""
+        st.session_state.test_submitted = False
         st.rerun()
         
     st.markdown("---")
     
-    # === PHASE 2: PROFESSOR DASHBOARD ===
+    # === PHASE 2 & 3: PROFESSOR DASHBOARD ===
     if st.session_state.role == "Professor":
         st.header("👨‍🏫 Professor Dashboard")
         
-        # Creates two clean tabs for organization
-        tab1, tab2 = st.tabs(["Add New Question", "Manage Question Bank"])
+        tab1, tab2, tab3 = st.tabs(["Add New Question", "Manage Question Bank", "Student Scores"])
         
         # TAB 1: ADD QUESTIONS
         with tab1:
@@ -109,8 +113,6 @@ if st.session_state.logged_in:
             if st.button("Save Question"):
                 if subject and question_text and opt_a and opt_b and opt_c and opt_d:
                     questions = load_data('questions.json')
-                    
-                    # Safety check for file formatting
                     if isinstance(questions, dict): 
                         questions = []
                         
@@ -137,7 +139,6 @@ if st.session_state.logged_in:
             if isinstance(questions, dict): 
                 questions = []
             
-            # This ensures professors only see their own questions
             my_questions = [q for q in questions if q.get("professor") == st.session_state.username]
             
             if not my_questions:
@@ -151,13 +152,73 @@ if st.session_state.logged_in:
                         st.write(f"**D:** {q['D']}")
                         st.success(f"**Correct Answer:** {q['answer']}")
                         
-                        # Deletion mechanism
                         if st.button("Delete Question", key=f"del_{i}"):
                             questions.remove(q)
                             save_data('questions.json', questions)
                             st.rerun()
                             
-    # === PHASE 3 PLACEHOLDER ===
+        # TAB 3: STUDENT SCORES
+        with tab3:
+            st.subheader("Test Results")
+            scores = load_data('scores.json')
+            if not scores:
+                st.info("No students have completed the test yet.")
+            else:
+                for student, data in scores.items():
+                    st.write(f"**{student}**: {data['score']}/{data['total']} ({data['percentage']}%)")
+
+    # === PHASE 3: STUDENT TEST PORTAL ===
     elif st.session_state.role == "Student":
         st.header("🎓 Student Test Portal")
-        st.info("The testing engine is coming in Phase 3. Please wait for your professor to add questions!")
+        
+        questions = load_data('questions.json')
+        if isinstance(questions, dict) or not questions:
+            st.info("There are no questions available right now. Please wait for your professor to add some!")
+        
+        elif st.session_state.test_submitted:
+            st.success("Test Submitted Successfully!")
+            st.metric(label="Your Score", value=f"{st.session_state.student_score} / {len(questions)}")
+            if st.button("Take Test Again"):
+                st.session_state.test_submitted = False
+                st.rerun()
+        
+        else:
+            st.write("Please select the best answer for each question.")
+            st.markdown("---")
+            
+            with st.form("test_form"):
+                student_answers = {}
+                for i, q in enumerate(questions):
+                    st.subheader(f"Q{i+1}: {q['question']}")
+                    options = [f"A) {q['A']}", f"B) {q['B']}", f"C) {q['C']}", f"D) {q['D']}"]
+                    # Provide options with no default selection
+                    choice = st.radio("Select your answer:", options, key=f"q_{i}", index=None)
+                    student_answers[i] = choice
+                    st.markdown("---")
+                    
+                submitted = st.form_submit_button("Submit Test")
+                
+                if submitted:
+                    # Calculate Score
+                    score = 0
+                    for i, q in enumerate(questions):
+                        ans = student_answers[i]
+                        if ans:
+                            # Extract just the letter (A, B, C, or D) from the student's string choice
+                            chosen_letter = ans[0] 
+                            if chosen_letter == q['answer']:
+                                score += 1
+                                
+                    st.session_state.student_score = score
+                    st.session_state.test_submitted = True
+                    
+                    # Save Score to Database
+                    scores = load_data('scores.json')
+                    scores[st.session_state.username] = {
+                        "score": score,
+                        "total": len(questions),
+                        "percentage": round((score/len(questions))*100, 2) if len(questions) > 0 else 0
+                    }
+                    save_data('scores.json', scores)
+                    
+                    st.rerun()
