@@ -391,9 +391,6 @@ if st.session_state.logged_in:
             if st.button("Save Question"):
                 if department and subject and question_text and opt_a and opt_b and opt_c and opt_d:
                     questions = load_data('questions.json')
-       # ADD THESE TWO LINES HERE:
-       if not isinstance(questions, list):
-           questions = []
                     new_q = {
                         "professor": st.session_state.username, "institution": st.session_state.institution,
                         "department": department, "subject": subject, "question": question_text,
