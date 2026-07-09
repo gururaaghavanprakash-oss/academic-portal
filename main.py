@@ -38,7 +38,8 @@ st.title("⚙️ Academic Testing Portal")
 
 if not st.session_state.logged_in:
     st.subheader("Welcome. Please select your portal:")
-    portal = st.radio("Login as:", ["Student", "Professor"])
+    # ADDED: Admin option to the radio button
+    portal = st.radio("Login as:", ["Student", "Professor", "Admin"])
 
     if portal == "Professor":
         st.info("Default setup: Enter a new passcode to register, or enter your existing passcode to log in.")
@@ -74,6 +75,19 @@ if not st.session_state.logged_in:
                 st.rerun()
             else:
                 st.warning("Please enter your name.")
+                
+    # ADDED: Admin Login Flow
+    elif portal == "Admin":
+        st.info("System Administrator Access")
+        admin_pass = st.text_input("Admin Passcode", type="password")
+        if st.button("Admin Login"):
+            if admin_pass == "admin123": # Hardcoded admin password for simplicity
+                st.session_state.logged_in = True
+                st.session_state.role = "Admin"
+                st.session_state.username = "Administrator"
+                st.rerun()
+            else:
+                st.error("Access Denied: Incorrect Admin Passcode.")
 
 # --- DASHBOARDS ---
 if st.session_state.logged_in:
@@ -88,13 +102,39 @@ if st.session_state.logged_in:
         
     st.markdown("---")
     
-    # === PHASE 2 & 3: PROFESSOR DASHBOARD ===
-    if st.session_state.role == "Professor":
+    # === ADMIN DASHBOARD ===
+    if st.session_state.role == "Admin":
+        st.header("🛡️ System Administrator Dashboard")
+        st.subheader("Manage Professor Accounts")
+        
+        creds = load_data('credentials.json')
+        if not creds:
+            st.info("No professors have registered yet.")
+        else:
+            for prof in list(creds.keys()):
+                col1, col2 = st.columns([3, 1])
+                with col1:
+                    st.write(f"👨‍🏫 **Professor ID:** {prof}")
+                with col2:
+                    if st.button("Remove Account", key=f"del_prof_{prof}"):
+                        # 1. Delete the professor's account
+                        del creds[prof]
+                        save_data('credentials.json', creds)
+                        
+                        # 2. Delete all questions created by this professor
+                        questions = load_data('questions.json')
+                        if isinstance(questions, list):
+                            filtered_questions = [q for q in questions if q.get("professor") != prof]
+                            save_data('questions.json', filtered_questions)
+                        
+                        st.rerun()
+
+    # === PROFESSOR DASHBOARD ===
+    elif st.session_state.role == "Professor":
         st.header("👨‍🏫 Professor Dashboard")
         
         tab1, tab2, tab3 = st.tabs(["Add New Question", "Manage Question Bank", "Student Scores"])
         
-        # TAB 1: ADD QUESTIONS
         with tab1:
             st.subheader("Create a Question")
             subject = st.text_input("Subject Area (e.g., Physics, Mechanical Design)")
@@ -132,7 +172,6 @@ if st.session_state.logged_in:
                 else:
                     st.warning("Please fill out all fields before saving.")
                     
-        # TAB 2: MANAGE QUESTIONS
         with tab2:
             st.subheader("Your Question Bank")
             questions = load_data('questions.json')
@@ -157,7 +196,6 @@ if st.session_state.logged_in:
                             save_data('questions.json', questions)
                             st.rerun()
                             
-        # TAB 3: STUDENT SCORES
         with tab3:
             st.subheader("Test Results")
             scores = load_data('scores.json')
@@ -167,7 +205,7 @@ if st.session_state.logged_in:
                 for student, data in scores.items():
                     st.write(f"**{student}**: {data['score']}/{data['total']} ({data['percentage']}%)")
 
-    # === PHASE 3: STUDENT TEST PORTAL ===
+    # === STUDENT TEST PORTAL ===
     elif st.session_state.role == "Student":
         st.header("🎓 Student Test Portal")
         
@@ -191,7 +229,6 @@ if st.session_state.logged_in:
                 for i, q in enumerate(questions):
                     st.subheader(f"Q{i+1}: {q['question']}")
                     options = [f"A) {q['A']}", f"B) {q['B']}", f"C) {q['C']}", f"D) {q['D']}"]
-                    # Provide options with no default selection
                     choice = st.radio("Select your answer:", options, key=f"q_{i}", index=None)
                     student_answers[i] = choice
                     st.markdown("---")
@@ -199,12 +236,10 @@ if st.session_state.logged_in:
                 submitted = st.form_submit_button("Submit Test")
                 
                 if submitted:
-                    # Calculate Score
                     score = 0
                     for i, q in enumerate(questions):
                         ans = student_answers[i]
                         if ans:
-                            # Extract just the letter (A, B, C, or D) from the student's string choice
                             chosen_letter = ans[0] 
                             if chosen_letter == q['answer']:
                                 score += 1
@@ -212,7 +247,6 @@ if st.session_state.logged_in:
                     st.session_state.student_score = score
                     st.session_state.test_submitted = True
                     
-                    # Save Score to Database
                     scores = load_data('scores.json')
                     scores[st.session_state.username] = {
                         "score": score,
