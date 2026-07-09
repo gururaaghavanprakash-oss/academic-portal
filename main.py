@@ -71,7 +71,6 @@ if 'institution' not in st.session_state: st.session_state.institution = ""
 if 'test_submitted' not in st.session_state: st.session_state.test_submitted = False
 if 'student_score' not in st.session_state: st.session_state.student_score = 0
 if 'test_total' not in st.session_state: st.session_state.test_total = 0
-# NEW: Professor Navigation State
 if 'prof_dept' not in st.session_state: st.session_state.prof_dept = None
 if 'prof_subject' not in st.session_state: st.session_state.prof_subject = None
 
@@ -98,7 +97,6 @@ if not st.session_state.logged_in:
                         st.session_state.role = "Professor"
                         st.session_state.username = prof_id
                         st.session_state.institution = creds[prof_id]["institution"]
-                        # Reset nav on login
                         st.session_state.prof_dept = None
                         st.session_state.prof_subject = None
                         st.rerun()
@@ -284,6 +282,7 @@ if st.session_state.logged_in:
             st.header(f"🛡️ {st.session_state.institution} Admin Dashboard")
             admin_tab1, admin_tab2, admin_tab3 = st.tabs(["Manage Existing Professors", "Register New Professor", "Account Settings"])
             
+            # --- NEW DYNAMIC PROFESSOR UPDATES ---
             with admin_tab1:
                 creds = load_data('credentials.json')
                 inst_profs = {p: data for p, data in creds.items() if isinstance(data, dict) and data.get("institution") == st.session_state.institution}
@@ -292,17 +291,30 @@ if st.session_state.logged_in:
                 else:
                     for prof, data in inst_profs.items():
                         with st.expander(f"👨‍🏫 {prof}"):
-                            st.write(f"**Departments:** {', '.join(data.get('departments', ['N/A']))}")
-                            st.write(f"**Subjects:** {', '.join(data.get('subjects', ['N/A']))}")
-                            if st.button("Remove Account", key=f"del_prof_{prof}"):
-                                del creds[prof]
-                                save_data('credentials.json', creds)
-                                qs = load_data('questions.json')
-                                save_data('questions.json', [q for q in qs if not (q.get("professor") == prof and q.get("institution") == st.session_state.institution)])
-                                st.rerun()
+                            current_depts = ", ".join(data.get('departments', []))
+                            current_subs = ", ".join(data.get('subjects', []))
+                            
+                            st.write("Edit Details (Comma separated):")
+                            upd_depts = st.text_input("Departments", value=current_depts, key=f"upd_dept_{prof}")
+                            upd_subs = st.text_input("Subjects", value=current_subs, key=f"upd_sub_{prof}")
+                            
+                            col1, col2 = st.columns(2)
+                            with col1:
+                                if st.button("Update Details", key=f"btn_upd_{prof}", type="primary"):
+                                    creds[prof]["departments"] = [d.strip() for d in upd_depts.split(",") if d.strip()]
+                                    creds[prof]["subjects"] = [s.strip() for s in upd_subs.split(",") if s.strip()]
+                                    save_data('credentials.json', creds)
+                                    st.success(f"{prof}'s details updated successfully!")
+                                    st.rerun()
+                            with col2:
+                                if st.button("Remove Account", key=f"del_prof_{prof}"):
+                                    del creds[prof]
+                                    save_data('credentials.json', creds)
+                                    qs = load_data('questions.json')
+                                    save_data('questions.json', [q for q in qs if not (q.get("professor") == prof and q.get("institution") == st.session_state.institution)])
+                                    st.rerun()
                                 
             with admin_tab2:
-                # NEW: Admin sets up the Professor's Departments and Subjects here
                 new_prof_id = st.text_input("New Professor ID (Name)")
                 new_prof_pass = st.text_input("Assign Passcode", type="password")
                 st.info("Separate multiple entries with commas (e.g. Computer Science, Mechanical)")
@@ -315,8 +327,8 @@ if st.session_state.logged_in:
                         if new_prof_id in creds:
                             st.warning("This ID exists. Please add a unique identifier (like a last name).")
                         else:
-                            dept_list = [d.strip() for d in new_depts.split(",")]
-                            sub_list = [s.strip() for s in new_subs.split(",")]
+                            dept_list = [d.strip() for d in new_depts.split(",") if d.strip()]
+                            sub_list = [s.strip() for s in new_subs.split(",") if s.strip()]
                             creds[new_prof_id] = {
                                 "passcode": new_prof_pass, 
                                 "institution": st.session_state.institution,
@@ -342,7 +354,7 @@ if st.session_state.logged_in:
                     else:
                         st.error("Please check the confirmation box.")
 
-    # === 3. PROFESSOR DASHBOARD (Drill-Down Navigation) ===
+    # === 3. PROFESSOR DASHBOARD ===
     elif st.session_state.role == "Professor":
         creds = load_data('credentials.json')
         my_profile = creds.get(st.session_state.username, {})
@@ -384,10 +396,8 @@ if st.session_state.logged_in:
             
             tab1, tab2, tab3 = st.tabs(["Add New Question", "Manage Question Bank", "Student Scores"])
             
-            # --- AUTO-CLEARING FORM ---
             with tab1:
                 st.subheader(f"Add Question to {st.session_state.prof_subject}")
-                # Wrapping inputs in st.form automatically clears them when submitted!
                 with st.form("add_question_form", clear_on_submit=True):
                     question_text = st.text_area("Question Text")
                     col1, col2 = st.columns(2)
@@ -424,7 +434,6 @@ if st.session_state.logged_in:
                 questions = load_data('questions.json')
                 if not isinstance(questions, list): questions = []
                 
-                # Only show questions for this specific Dept/Subject combo!
                 my_questions = [q for q in questions if q.get("professor") == st.session_state.username and q.get("institution") == st.session_state.institution and q.get("department") == st.session_state.prof_dept and q.get("subject") == st.session_state.prof_subject]
                 
                 if not my_questions:
@@ -445,8 +454,6 @@ if st.session_state.logged_in:
             with tab3:
                 scores = load_data('scores.json')
                 inst_scores = {k: v for k, v in scores.items() if v.get("institution") == st.session_state.institution}
-                
-                # Auto-filter scores for this department
                 filtered_scores = {k: v for k, v in inst_scores.items() if v.get("department") == st.session_state.prof_dept and v.get("subject") == st.session_state.prof_subject}
                 
                 if not filtered_scores:
@@ -492,7 +499,6 @@ if st.session_state.logged_in:
                 st.session_state.test_submitted = False
                 st.rerun()
         else:
-            # Student follows the same drill-down path!
             departments = sorted(list(set([q.get("department", "General") for q in inst_questions])))
             selected_dept = st.selectbox("1. Select your Department:", departments)
             
