@@ -123,7 +123,6 @@ if not st.session_state.logged_in:
     st.markdown("---")
     with st.expander("Register a School/College/University"):
         st.write("Submit your institution for approval to use the platform.")
-        # AUTO-CLEARING FORM FOR INSTITUTION REGISTRATION
         with st.form("inst_reg_form", clear_on_submit=True):
             inst_name = st.text_input("Full Institute Name")
             contact_name = st.text_input("Your Name (Admin Contact)")
@@ -228,11 +227,8 @@ if st.session_state.logged_in:
                 else:
                     for prof, data in inst_profs.items():
                         with st.expander(f"👨‍🏫 {prof}"):
-                            c_depts = ", ".join(data.get('departments', []))
-                            c_subs = ", ".join(data.get('subjects', []))
-                            
-                            upd_depts = st.text_input("Departments", value=c_depts, key=f"upd_dept_{prof}")
-                            upd_subs = st.text_input("Subjects", value=c_subs, key=f"upd_sub_{prof}")
+                            upd_depts = st.text_input("Departments", value=", ".join(data.get('departments', [])), key=f"upd_dept_{prof}")
+                            upd_subs = st.text_input("Subjects", value=", ".join(data.get('subjects', [])), key=f"upd_sub_{prof}")
                             
                             col1, col2 = st.columns(2)
                             with col1:
@@ -248,7 +244,6 @@ if st.session_state.logged_in:
                                     st.rerun()
                                 
             with admin_tab2:
-                # AUTO-CLEARING FORM FOR PROFESSOR CREATION
                 with st.form("create_prof_form", clear_on_submit=True):
                     new_prof_id = st.text_input("New Professor ID (Name)")
                     new_prof_pass = st.text_input("Assign Passcode", type="password")
@@ -259,8 +254,7 @@ if st.session_state.logged_in:
                     if st.form_submit_button("Create Account"):
                         if new_prof_id and new_prof_pass and new_depts and new_subs:
                             creds = load_data('credentials.json')
-                            if new_prof_id in creds:
-                                st.warning("This ID exists. Please add a unique identifier (like a last name).")
+                            if new_prof_id in creds: st.warning("This ID exists.")
                             else:
                                 creds[new_prof_id] = {
                                     "passcode": new_prof_pass, "institution": st.session_state.institution,
@@ -269,14 +263,15 @@ if st.session_state.logged_in:
                                 }
                                 save_data('credentials.json', creds)
                                 st.success(f"✅ Professor '{new_prof_id}' added successfully!")
-                        else:
-                            st.warning("Please fill out all fields.")
+                        else: st.warning("Please fill out all fields.")
                         
             with admin_tab3:
                 st.subheader("Institution Account Deletion")
-                # AUTO-CLEARING FORM FOR DELETION REQUESTS
                 with st.form("del_req_form", clear_on_submit=True):
-                    confirm_del = st.checkbox("I confirm my request to delete this institution.")
+                    # RESTORED DISCLAIMER TEXT PLACED SAFELY INSIDE FORM
+                    st.warning("⚠️ DISCLAIMER: Your account will be scheduled for permanent deletion inside a 3-day window once approved by the Platform Administrator. You can undo this request anytime within the due date by logging back into this Admin portal and clicking Recover Account.")
+                    confirm_del = st.checkbox("I have read the disclaimer and confirm my deletion request.")
+                    
                     if st.form_submit_button("Submit Deletion Request", type="primary"):
                         if confirm_del:
                             reqs = load_data('deletion_requests.json')
@@ -285,8 +280,7 @@ if st.session_state.logged_in:
                                 reqs.append({"username": st.session_state.institution, "role": "Admin", "institution": st.session_state.institution})
                                 save_data('deletion_requests.json', reqs)
                                 st.success("✅ Request sent to Platform Administrator.")
-                        else:
-                            st.error("Please check the confirmation box.")
+                        else: st.error("Please check the confirmation box to proceed.")
 
     # === 3. PROFESSOR DASHBOARD ===
     elif st.session_state.role == "Professor":
@@ -313,7 +307,6 @@ if st.session_state.logged_in:
             
             tab1, tab2, tab3 = st.tabs(["Add Question", "Bank", "Scores"])
             with tab1:
-                # AUTO-CLEARING FORM FOR ADDING QUESTIONS
                 with st.form("add_q", clear_on_submit=True):
                     q_txt = st.text_area("Question Text")
                     c1, c2 = st.columns(2)
