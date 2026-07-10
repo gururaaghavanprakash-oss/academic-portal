@@ -72,8 +72,6 @@ if 'role' not in st.session_state: st.session_state.role = None
 if 'username' not in st.session_state: st.session_state.username = ""
 if 'institution' not in st.session_state: st.session_state.institution = ""
 if 'test_submitted' not in st.session_state: st.session_state.test_submitted = False
-if 'student_score' not in st.session_state: st.session_state.student_score = 0
-if 'test_total' not in st.session_state: st.session_state.test_total = 0
 
 if 'prof_dept' not in st.session_state: st.session_state.prof_dept = None
 if 'prof_subject' not in st.session_state: st.session_state.prof_subject = None
@@ -238,7 +236,6 @@ if st.session_state.logged_in:
                         with st.expander(f"👨‍🏫 {prof}"):
                             upd_depts = st.text_input("Departments", value=", ".join(data.get('departments', [])), key=f"upd_dept_{prof}")
                             upd_subs = st.text_input("Subjects", value=", ".join(data.get('subjects', [])), key=f"upd_sub_{prof}")
-                            
                             col1, col2 = st.columns(2)
                             with col1:
                                 if st.button("Update Details", key=f"btn_upd_{prof}", type="primary"):
@@ -331,13 +328,16 @@ if st.session_state.logged_in:
             with st.form("new_test_form", clear_on_submit=True):
                 st.subheader("Create a New Test")
                 new_t = st.text_input("Enter Test Name (e.g., Chapter 1 Quiz)")
-                t_limit = st.number_input("Time Limit (in Minutes)", min_value=1, max_value=180, value=15)
+                
+                # --- NEW TIMER TOGGLE AND INPUT ---
+                timer_enabled = st.checkbox("Enable Time Limit for this Test", value=True)
+                t_limit = st.number_input("Time Limit (in Minutes)", min_value=1, max_value=180, value=15, disabled=not timer_enabled)
                 
                 if st.form_submit_button("Create & Manage Test"):
                     if new_t: 
                         tests_db = load_data('tests.json')
                         t_key = f"{st.session_state.institution}_{st.session_state.prof_dept}_{st.session_state.prof_subject}_{new_t.strip()}"
-                        tests_db[t_key] = {"time_limit": t_limit}
+                        tests_db[t_key] = {"time_limit": t_limit, "timer_enabled": timer_enabled}
                         save_data('tests.json', tests_db)
                         st.session_state.prof_test = new_t.strip(); st.rerun()
                     else: st.warning("Please enter a name for the new test.")
@@ -353,7 +353,7 @@ if st.session_state.logged_in:
                     st.session_state.prof_test = None
                     st.rerun()
             
-            tab1, tab2, tab3 = st.tabs(["Add Question", "Bank", "Scores & Retakes"])
+            tab1, tab2, tab3 = st.tabs(["Add Question", "Bank", "Scores & Advanced Reports"])
             with tab1:
                 with st.form("add_q", clear_on_submit=True):
                     q_txt = st.text_area("Question Text")
@@ -385,12 +385,12 @@ if st.session_state.logged_in:
             
             with tab3:
                 scores = load_data('scores.json')
-                f_scores = {
+                f_scores_dict = {
                     k: v for k, v in scores.items() if isinstance(v, dict) and v.get("department") == st.session_state.prof_dept 
                     and v.get("subject") == st.session_state.prof_subject and v.get("test_name") == st.session_state.prof_test
                 }
                 
-                reqs = {k: v for k, v in f_scores.items() if v.get("retake_status") == "requested"}
+                reqs = {k: v for k, v in f_scores_dict.items() if v.get("retake_status") == "requested"}
                 if reqs:
                     st.error("🚨 Pending Retake Requests")
                     for k, v in reqs.items():
@@ -401,9 +401,51 @@ if st.session_state.logged_in:
                                 scores[k]["retake_status"] = "approved"; save_data('scores.json', scores); st.rerun()
                     st.markdown("---")
 
-                if not f_scores: st.info("No scores yet.")
+                if not f_scores_dict: st.info("No scores yet.")
                 else:
-                    for k, s in f_scores.items(): st.write(f"**{s.get('student')}**: {s.get('score')}/{s.get('total')} ({s.get('percentage')}%)")
+                    # --- NEW RANKING LOGIC (Sort by Score descending, then Time ascending) ---
+                    ranked_scores = sorted(list(f_scores_dict.values()), key=lambda x: (-x.get('score', 0), x.get('time_taken_seconds', 999999)))
+                    
+                    st.subheader("🏆 Class Rankings & Reports")
+                    
+                    # --- FULL CLASS REPORT DOWNLOAD ---
+                    full_csv = "Rank,Student Name,Score,Total,Percentage%,Time Taken,Total Attempts\n"
+                    for rank, s in enumerate(ranked_scores, 1):
+                        attempts = len(s.get('past_attempts', [])) + 1
+                        full_csv += f"{rank},{s.get('student')},{s.get('score')},{s.get('total')},{s.get('percentage')},{s.get('time_taken_str', 'N/A')},{attempts}\n"
+                    
+                    st.download_button(
+                        label="📥 Download Full Class Report (CSV)",
+                        data=full_csv,
+                        file_name=f"{st.session_state.prof_test}_Full_Report.csv",
+                        mime="text/csv",
+                        type="primary"
+                    )
+                    st.markdown("---")
+                    
+                    # --- INDIVIDUAL STUDENT REPORTS ---
+                    for rank, s in enumerate(ranked_scores, 1):
+                        c1, c2 = st.columns([3, 1])
+                        with c1: 
+                            st.write(f"**#{rank} {s.get('student')}** | Score: {s.get('score')}/{s.get('total')} ({s.get('percentage')}%) | ⏱️ Time: {s.get('time_taken_str', 'N/A')}")
+                        with c2:
+                            # Build Individual Deep-Dive CSV
+                            ind_csv = "Attempt,Question,Student Answer,Correct Answer,Status\n"
+                            
+                            # Add past retakes
+                            for attempt_idx, past in enumerate(s.get('past_attempts', [])):
+                                for d in past.get('details', []):
+                                    status = "Correct" if d.get('student_answer') == d.get('correct_answer') else "Incorrect"
+                                    ind_csv += f"Attempt {attempt_idx+1},\"{d.get('question')}\",{d.get('student_answer')},{d.get('correct_answer')},{status}\n"
+                            
+                            # Add current attempt
+                            current_idx = len(s.get('past_attempts', [])) + 1
+                            for d in s.get('details', []):
+                                status = "Correct" if d.get('student_answer') == d.get('correct_answer') else "Incorrect"
+                                ind_csv += f"Attempt {current_idx},\"{d.get('question')}\",{d.get('student_answer')},{d.get('correct_answer')},{status}\n"
+                                
+                            safe_name = re.sub(r'[^A-Za-z0-9]', '_', s.get('student'))
+                            st.download_button("📥 Individual Report", data=ind_csv, file_name=f"{safe_name}_{st.session_state.prof_test}.csv", key=f"dl_ind_{rank}")
 
     # === 4. STUDENT TEST PORTAL ===
     elif st.session_state.role == "Student":
@@ -433,43 +475,58 @@ if st.session_state.logged_in:
                 
                 tests_db = load_data('tests.json')
                 t_key = f"{st.session_state.institution}_{sel_dept}_{sel_sub}_{sel_test}"
+                t_enabled = tests_db.get(t_key, {}).get("timer_enabled", True)
                 t_limit = tests_db.get(t_key, {}).get("time_limit", 15)
                 
-                if score_key in scores and scores[score_key].get("retake_status") != "approved":
+                score_exists = score_key in scores
+                retake_status = scores[score_key].get("retake_status", "none") if score_exists else "none"
+                
+                if score_exists and retake_status not in ["approved", "in_progress"]:
                     s_data = scores[score_key]
                     st.success("✅ Test Completed")
-                    st.metric("Your Final Score", f"{s_data.get('score')}/{s_data.get('total')} ({s_data.get('percentage')}%)")
+                    c1, c2 = st.columns(2)
+                    c1.metric("Your Final Score", f"{s_data.get('score')}/{s_data.get('total')} ({s_data.get('percentage')}%)")
+                    c2.metric("⏱️ Time Taken", s_data.get('time_taken_str', 'N/A'))
                     
                     with st.expander("📝 View Test Review", expanded=True):
                         for i, d in enumerate(s_data.get("details", [])):
                             st.write(f"**Q{i+1}: {d['question']}**")
-                            if d['student_answer'] == d['correct_answer']:
+                            if d.get('student_answer') == d.get('correct_answer') and d.get('student_answer') is not None:
                                 st.success(f"✅ Your Answer: {d['student_answer']}) {d['options'].get(d['student_answer'])}")
                             else:
-                                st.error(f"❌ Your Answer: {d['student_answer']}) {d['options'].get(d['student_answer'])}")
-                                st.info(f"💡 Correct: {d['correct_answer']}) {d['options'].get(d['correct_answer'])}")
+                                st.error(f"❌ Your Answer: {d.get('student_answer', 'Blank')}")
+                                st.info(f"💡 Correct: {d.get('correct_answer')}) {d['options'].get(d.get('correct_answer'))}")
                             st.markdown("---")
 
-                    if scores[score_key].get("retake_status") == "requested": st.info("⏳ Retake pending approval.")
+                    if retake_status == "requested": st.info("⏳ Retake pending approval.")
                     elif st.button("Request Retake"):
                         scores[score_key]["retake_status"] = "requested"
                         save_data('scores.json', scores); st.rerun()
                         
-                elif score_key in scores and scores[score_key].get("retake_status") == "approved":
+                elif score_exists and retake_status == "approved":
                     st.success("🎉 Retake approved!")
                     if st.button("Start Retake Now", type="primary"):
-                        del scores[score_key]; save_data('scores.json', scores)
+                        # Archive old score without overwriting past attempts
+                        if 'past_attempts' not in scores[score_key]: scores[score_key]['past_attempts'] = []
+                        archive = {k: v for k, v in scores[score_key].items() if k != 'past_attempts'}
+                        scores[score_key]['past_attempts'].append(archive)
+                        scores[score_key]['retake_status'] = "in_progress"
+                        save_data('scores.json', scores)
                         st.session_state.active_test_key = None; st.session_state.test_start_time = None; st.rerun()
                 else:
                     if st.session_state.active_test_key != score_key:
-                        st.info(f"⏱️ **Time Limit:** {t_limit} Minutes.")
+                        if t_enabled: st.info(f"⏱️ **Time Limit:** {t_limit} Minutes.")
+                        else: st.info("⏱️ **No Time Limit** for this test.")
+                        
                         if st.button("Start Test", type="primary"):
                             st.session_state.update({'active_test_key': score_key, 'test_start_time': datetime.now().strftime("%Y-%m-%d %H:%M:%S")})
                             st.rerun()
                     else:
                         start_dt = datetime.strptime(st.session_state.test_start_time, "%Y-%m-%d %H:%M:%S")
                         end_dt = start_dt + timedelta(minutes=t_limit)
-                        st.warning(f"⏳ **Submit before:** {end_dt.strftime('%I:%M %p')}")
+                        if t_enabled: st.warning(f"⏳ **Submit before:** {end_dt.strftime('%I:%M %p')}")
+                        else: st.success("🟢 Test in progress. Take your time.")
+                        
                         with st.form("test_form"):
                             s_ans = {}
                             for i, q in enumerate(final_qs):
@@ -477,8 +534,20 @@ if st.session_state.logged_in:
                                 s_ans[i] = st.radio("Answer:", [f"A) {q.get('A')}", f"B) {q.get('B')}", f"C) {q.get('C')}", f"D) {q.get('D')}"], index=None, key=f"q_{i}")
                             if st.form_submit_button("Submit Test"):
                                 now = datetime.now()
+                                time_sec = (now - start_dt).total_seconds()
+                                mins, secs = divmod(int(time_sec), 60)
+                                time_str = f"{mins}m {secs}s"
+                                
                                 score = sum([1 for i, q in enumerate(final_qs) if s_ans[i] and s_ans[i][0] == q.get('answer')])
                                 details = [{"question": q.get('question'), "options": {"A": q.get('A'), "B": q.get('B'), "C": q.get('C'), "D": q.get('D')}, "student_answer": (s_ans[i][0] if s_ans[i] else None), "correct_answer": q.get('answer')} for i, q in enumerate(final_qs)]
+                                
                                 scores = load_data('scores.json')
-                                scores[score_key] = {"student": st.session_state.username, "institution": st.session_state.institution, "department": sel_dept, "subject": sel_sub, "test_name": sel_test, "score": score if now <= end_dt + timedelta(seconds=30) else 0, "total": len(final_qs), "percentage": round((score/len(final_qs))*100, 2), "retake_status": "none", "details": details}
-                                save_data('scores.json', scores); st.session_state.update({'active_test_key': None, 'test_start_time': None}); st.rerun()
+                                past_attempts = scores.get(score_key, {}).get("past_attempts", [])
+                                
+                                # Enforce timer if enabled
+                                if t_enabled and now > end_dt + timedelta(seconds=30):
+                                    scores[score_key] = {"student": st.session_state.username, "institution": st.session_state.institution, "department": sel_dept, "subject": sel_sub, "test_name": sel_test, "score": 0, "total": len(final_qs), "percentage": 0, "retake_status": "none", "details": [], "time_taken_seconds": time_sec, "time_taken_str": "Time Expired", "past_attempts": past_attempts}
+                                    save_data('scores.json', scores); st.session_state.update({'active_test_key': None, 'test_start_time': None}); st.error("❌ Time expired! 0 recorded."); st.rerun()
+                                else:
+                                    scores[score_key] = {"student": st.session_state.username, "institution": st.session_state.institution, "department": sel_dept, "subject": sel_sub, "test_name": sel_test, "score": score, "total": len(final_qs), "percentage": round((score/len(final_qs))*100, 2), "retake_status": "none", "details": details, "time_taken_seconds": time_sec, "time_taken_str": time_str, "past_attempts": past_attempts}
+                                    save_data('scores.json', scores); st.session_state.update({'active_test_key': None, 'test_start_time': None}); st.rerun()
