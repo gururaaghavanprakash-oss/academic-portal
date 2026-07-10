@@ -236,6 +236,7 @@ if st.session_state.logged_in:
                         with st.expander(f"👨‍🏫 {prof}"):
                             upd_depts = st.text_input("Departments", value=", ".join(data.get('departments', [])), key=f"upd_dept_{prof}")
                             upd_subs = st.text_input("Subjects", value=", ".join(data.get('subjects', [])), key=f"upd_sub_{prof}")
+                            
                             col1, col2 = st.columns(2)
                             with col1:
                                 if st.button("Update Details", key=f"btn_upd_{prof}", type="primary"):
@@ -329,7 +330,6 @@ if st.session_state.logged_in:
                 st.subheader("Create a New Test")
                 new_t = st.text_input("Enter Test Name (e.g., Chapter 1 Quiz)")
                 
-                # --- NEW TIMER TOGGLE AND INPUT ---
                 timer_enabled = st.checkbox("Enable Time Limit for this Test", value=True)
                 t_limit = st.number_input("Time Limit (in Minutes)", min_value=1, max_value=180, value=15, disabled=not timer_enabled)
                 
@@ -371,6 +371,15 @@ if st.session_state.logged_in:
                             })
                             save_data('questions.json', qs); st.success("✅ Saved!")
                         else: st.error("Please fill out all fields.")
+                
+                st.markdown("---")
+                # --- NEW FINISH BUTTON FOR PROFESSORS ---
+                if st.button("🏁 Finish Adding Questions & Return Home", type="primary", use_container_width=True):
+                    st.session_state.prof_dept = None
+                    st.session_state.prof_subject = None
+                    st.session_state.prof_test = None
+                    st.rerun()
+
             with tab2:
                 qs = load_data('questions.json')
                 my_qs = [
@@ -403,12 +412,10 @@ if st.session_state.logged_in:
 
                 if not f_scores_dict: st.info("No scores yet.")
                 else:
-                    # --- NEW RANKING LOGIC (Sort by Score descending, then Time ascending) ---
                     ranked_scores = sorted(list(f_scores_dict.values()), key=lambda x: (-x.get('score', 0), x.get('time_taken_seconds', 999999)))
                     
                     st.subheader("🏆 Class Rankings & Reports")
                     
-                    # --- FULL CLASS REPORT DOWNLOAD ---
                     full_csv = "Rank,Student Name,Score,Total,Percentage%,Time Taken,Total Attempts\n"
                     for rank, s in enumerate(ranked_scores, 1):
                         attempts = len(s.get('past_attempts', [])) + 1
@@ -423,26 +430,28 @@ if st.session_state.logged_in:
                     )
                     st.markdown("---")
                     
-                    # --- INDIVIDUAL STUDENT REPORTS ---
                     for rank, s in enumerate(ranked_scores, 1):
                         c1, c2 = st.columns([3, 1])
                         with c1: 
                             st.write(f"**#{rank} {s.get('student')}** | Score: {s.get('score')}/{s.get('total')} ({s.get('percentage')}%) | ⏱️ Time: {s.get('time_taken_str', 'N/A')}")
                         with c2:
-                            # Build Individual Deep-Dive CSV
-                            ind_csv = "Attempt,Question,Student Answer,Correct Answer,Status\n"
+                            # --- INDIVIDUAL REPORTS NOW INCLUDE TIME TAKEN ---
+                            ind_csv = "Attempt,Time Taken,Question,Student Answer,Correct Answer,Status\n"
                             
-                            # Add past retakes
                             for attempt_idx, past in enumerate(s.get('past_attempts', [])):
+                                p_time = past.get('time_taken_str', 'N/A')
                                 for d in past.get('details', []):
                                     status = "Correct" if d.get('student_answer') == d.get('correct_answer') else "Incorrect"
-                                    ind_csv += f"Attempt {attempt_idx+1},\"{d.get('question')}\",{d.get('student_answer')},{d.get('correct_answer')},{status}\n"
+                                    # Ensure commas in questions don't break CSV formatting
+                                    clean_q = str(d.get('question')).replace('"', '""')
+                                    ind_csv += f"Attempt {attempt_idx+1},{p_time},\"{clean_q}\",{d.get('student_answer')},{d.get('correct_answer')},{status}\n"
                             
-                            # Add current attempt
                             current_idx = len(s.get('past_attempts', [])) + 1
+                            c_time = s.get('time_taken_str', 'N/A')
                             for d in s.get('details', []):
                                 status = "Correct" if d.get('student_answer') == d.get('correct_answer') else "Incorrect"
-                                ind_csv += f"Attempt {current_idx},\"{d.get('question')}\",{d.get('student_answer')},{d.get('correct_answer')},{status}\n"
+                                clean_q = str(d.get('question')).replace('"', '""')
+                                ind_csv += f"Attempt {current_idx},{c_time},\"{clean_q}\",{d.get('student_answer')},{d.get('correct_answer')},{status}\n"
                                 
                             safe_name = re.sub(r'[^A-Za-z0-9]', '_', s.get('student'))
                             st.download_button("📥 Individual Report", data=ind_csv, file_name=f"{safe_name}_{st.session_state.prof_test}.csv", key=f"dl_ind_{rank}")
@@ -506,7 +515,6 @@ if st.session_state.logged_in:
                 elif score_exists and retake_status == "approved":
                     st.success("🎉 Retake approved!")
                     if st.button("Start Retake Now", type="primary"):
-                        # Archive old score without overwriting past attempts
                         if 'past_attempts' not in scores[score_key]: scores[score_key]['past_attempts'] = []
                         archive = {k: v for k, v in scores[score_key].items() if k != 'past_attempts'}
                         scores[score_key]['past_attempts'].append(archive)
@@ -544,7 +552,6 @@ if st.session_state.logged_in:
                                 scores = load_data('scores.json')
                                 past_attempts = scores.get(score_key, {}).get("past_attempts", [])
                                 
-                                # Enforce timer if enabled
                                 if t_enabled and now > end_dt + timedelta(seconds=30):
                                     scores[score_key] = {"student": st.session_state.username, "institution": st.session_state.institution, "department": sel_dept, "subject": sel_sub, "test_name": sel_test, "score": 0, "total": len(final_qs), "percentage": 0, "retake_status": "none", "details": [], "time_taken_seconds": time_sec, "time_taken_str": "Time Expired", "past_attempts": past_attempts}
                                     save_data('scores.json', scores); st.session_state.update({'active_test_key': None, 'test_start_time': None}); st.error("❌ Time expired! 0 recorded."); st.rerun()
