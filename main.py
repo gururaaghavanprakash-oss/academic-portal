@@ -123,14 +123,18 @@ if not st.session_state.logged_in:
                     s_key = f"{student_inst}_{student_user}"
                     if s_key in students and students[s_key].get("password") == student_pass:
                         s_data = students[s_key]
-                        i_type = insts.get(student_inst, {}).get("inst_type", "College")
-                        st.session_state.update({
-                            'logged_in': True, 'role': 'Student', 'username': student_user,
-                            'student_name': s_data.get("name", ""), 'institution': student_inst,
-                            'student_group': s_data.get("group", ""), 'student_subgroup': s_data.get("subgroup", ""),
-                            'inst_type': i_type
-                        })
-                        st.rerun()
+                        
+                        if s_data.get("status", "active") == "graduated":
+                            st.error("Access Denied: Your account is marked as Graduated/Alumni.")
+                        else:
+                            i_type = insts.get(student_inst, {}).get("inst_type", "College")
+                            st.session_state.update({
+                                'logged_in': True, 'role': 'Student', 'username': student_user,
+                                'student_name': s_data.get("name", ""), 'institution': student_inst,
+                                'student_group': s_data.get("group", ""), 'student_subgroup': s_data.get("subgroup", ""),
+                                'inst_type': i_type
+                            })
+                            st.rerun()
                     else: st.error("Invalid Username or Password.")
                 else: st.warning("Please enter your credentials.")
                 
@@ -244,7 +248,9 @@ if st.session_state.logged_in:
                 save_data('institutions.json', insts); st.rerun()
         else:
             st.header(f"🛡️ {st.session_state.institution} Admin Dashboard")
-            admin_tab1, admin_tab2, admin_tab3, admin_tab4 = st.tabs([f"Manage {lbl_prof}s", f"Add {lbl_prof}", "Manage Students", "Settings"])
+            admin_tab1, admin_tab2, admin_tab3, admin_tab4, admin_tab5, admin_tab6 = st.tabs([
+                f"Manage {lbl_prof}s", f"Add {lbl_prof}", "Add Students", "Manage Students", "Graduated Batches", "Settings"
+            ])
             
             with admin_tab1:
                 creds = load_data('credentials.json')
@@ -288,39 +294,108 @@ if st.session_state.logged_in:
                                 save_data('credentials.json', creds); st.success(f"✅ {lbl_prof} added!")
                         else: st.warning("Please fill out all fields.")
             
+            # --- NEW ADD STUDENTS TAB ---
             with admin_tab3:
                 students = load_data('students.json')
-                inst_students = {k: v for k, v in students.items() if isinstance(v, dict) and v.get("institution") == st.session_state.institution}
-                
-                with st.expander(f"👥 View/Remove Students ({len(inst_students)})", expanded=False):
-                    if not inst_students: st.info("No students registered.")
-                    for sk, sv in inst_students.items():
-                        c1, c2 = st.columns([3, 1])
-                        with c1: st.write(f"**{sv.get('name')}** (@{sv.get('username')}) - {lbl_grp}: {sv.get('group')} | {lbl_sub}: {sv.get('subgroup', 'N/A')}")
-                        with c2:
-                            if st.button("Remove", key=f"del_s_{sk}"):
-                                del students[sk]; save_data('students.json', students); st.rerun()
-
                 with st.form("create_student_form", clear_on_submit=True):
                     st.subheader("Register New Student")
                     s_user = st.text_input("Student Username / Roll No.")
                     s_name = st.text_input("Full Name")
                     s_pass = st.text_input("Assign Password", type="password")
                     
-                    st.info(f"Make sure the {lbl_grp} exactly matches what {lbl_prof}s use (e.g., {'10' if is_school else 'Computer Science'})")
-                    s_grp = st.text_input(f"Assigned {lbl_grp}")
-                    s_subgrp = st.text_input(f"{lbl_sub} (Optional)" if is_school else f"{lbl_sub} (e.g., 1st Year)")
+                    st.info(f"Make sure the {lbl_grp} exactly matches what {lbl_prof}s use.")
+                    s_grp = st.text_input(f"Assigned {lbl_grp} (e.g., {'Class 10' if is_school else 'Computer Science'})")
+                    s_subgrp = st.text_input(f"{lbl_sub} (e.g., {'Section A' if is_school else '1st Year'})")
+                    s_batch = st.text_input("Batch (e.g., 2022-2026)")
                     
                     if st.form_submit_button("Register Student"):
-                        if s_user and s_name and s_pass and s_grp:
+                        if s_user and s_name and s_pass and s_grp and s_subgrp and s_batch:
                             s_key = f"{st.session_state.institution}_{s_user}"
                             if s_key in students: st.warning("Username already exists.")
                             else:
-                                students[s_key] = {"username": s_user, "name": s_name, "password": s_pass, "institution": st.session_state.institution, "group": s_grp.strip(), "subgroup": s_subgrp.strip()}
+                                students[s_key] = {
+                                    "username": s_user, "name": s_name, "password": s_pass, 
+                                    "institution": st.session_state.institution, 
+                                    "group": s_grp.strip(), "subgroup": s_subgrp.strip(), 
+                                    "batch": s_batch.strip(), "status": "active"
+                                }
                                 save_data('students.json', students); st.success("✅ Student Registered!")
-                        else: st.warning("Please fill out Username, Name, Password, and Group.")
+                        else: st.warning("Please fill out all required fields.")
 
+            # --- NEW MANAGE STUDENTS TAB ---
             with admin_tab4:
+                students = load_data('students.json')
+                inst_students = {k: v for k, v in students.items() if isinstance(v, dict) and v.get("institution") == st.session_state.institution}
+                active_students = {k: v for k, v in inst_students.items() if v.get("status", "active") == "active"}
+                
+                st.subheader("Manage Active Students")
+                if not active_students:
+                    st.info("No active students found.")
+                else:
+                    depts = sorted(list(set([v.get("group") for v in active_students.values()])))
+                    sel_dept = st.selectbox(f"1. Select {lbl_grp}:", depts)
+                    
+                    dept_students = {k: v for k, v in active_students.items() if v.get("group") == sel_dept}
+                    years = sorted(list(set([v.get("subgroup") for v in dept_students.values()])))
+                    sel_year = st.selectbox(f"2. Select {lbl_sub}:", years)
+                    
+                    year_students = {k: v for k, v in dept_students.items() if v.get("subgroup") == sel_year}
+                    
+                    st.markdown("---")
+                    st.write(f"**Students in {sel_dept} - {sel_year} ({len(year_students)})**")
+                    for sk, sv in year_students.items():
+                        c1, c2 = st.columns([4, 1])
+                        with c1: st.write(f"🎓 **{sv.get('name')}** (@{sv.get('username')}) | Batch: {sv.get('batch', 'N/A')}")
+                        with c2:
+                            if st.button("Remove", key=f"del_s_{sk}"):
+                                del students[sk]; save_data('students.json', students); st.rerun()
+                                
+                    st.markdown("---")
+                    st.subheader("⚙️ Bulk Group Actions")
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        st.write(f"**Promote Entire {lbl_sub}**")
+                        new_year = st.text_input(f"New {lbl_sub} Name:", placeholder=f"e.g., 2nd Year")
+                        if st.button(f"🚀 Promote {lbl_grp}", type="primary"):
+                            if new_year:
+                                for sk in year_students.keys(): students[sk]["subgroup"] = new_year.strip()
+                                save_data('students.json', students); st.success(f"Promoted to {new_year}!"); st.rerun()
+                            else: st.warning(f"Enter the new {lbl_sub} name first.")
+                    with c2:
+                        st.write("**Mark as Graduated / Alumni**")
+                        if st.button("🎓 Graduate Group", type="primary"):
+                            for sk in year_students.keys(): students[sk]["status"] = "graduated"
+                            save_data('students.json', students); st.success("Students moved to Alumni Archive!"); st.rerun()
+
+            # --- NEW GRADUATED BATCHES TAB ---
+            with admin_tab5:
+                st.subheader("🎓 Alumni Archive")
+                students = load_data('students.json')
+                inst_students = {k: v for k, v in students.items() if isinstance(v, dict) and v.get("institution") == st.session_state.institution}
+                grad_students = {k: v for k, v in inst_students.items() if v.get("status") == "graduated"}
+                
+                if not grad_students:
+                    st.info("No graduated students on record.")
+                else:
+                    batches = sorted(list(set([v.get("batch", "Unknown") for v in grad_students.values()])))
+                    sel_batch = st.selectbox("1. Select Batch:", batches)
+                    
+                    batch_students = {k: v for k, v in grad_students.items() if v.get("batch", "Unknown") == sel_batch}
+                    depts = sorted(list(set([v.get("group") for v in batch_students.values()])))
+                    sel_dept = st.selectbox(f"2. Select {lbl_grp}:", depts)
+                    
+                    final_grads = {k: v for k, v in batch_students.items() if v.get("group") == sel_dept}
+                    
+                    st.markdown("---")
+                    st.write(f"**Graduates of {sel_batch} - {sel_dept} ({len(final_grads)})**")
+                    for sk, sv in final_grads.items():
+                        c1, c2 = st.columns([4, 1])
+                        with c1: st.write(f"🎓 **{sv.get('name')}** (@{sv.get('username')}) | Final {lbl_sub}: {sv.get('subgroup', 'N/A')}")
+                        with c2:
+                            if st.button("Delete Record", key=f"del_g_{sk}"):
+                                del students[sk]; save_data('students.json', students); st.rerun()
+
+            with admin_tab6:
                 st.subheader("Institution Account Deletion")
                 with st.form("del_req_form", clear_on_submit=True):
                     st.warning("⚠️ DISCLAIMER: Your account will be scheduled for permanent deletion.")
@@ -493,7 +568,6 @@ if st.session_state.logged_in:
         st.markdown("---")
         
         qs = load_data('questions.json')
-        # SYSTEM NOW AUTOMATICALLY FILTERS BY THE STUDENT'S ASSIGNED GROUP!
         dept_qs = [q for q in qs if isinstance(q, dict) and q.get("institution") == st.session_state.institution and q.get("department") == st.session_state.student_group]
         
         if not dept_qs: st.info(f"No tests currently available for your {lbl_grp}.")
