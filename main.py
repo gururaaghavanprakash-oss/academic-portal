@@ -410,7 +410,6 @@ if st.session_state.logged_in:
                         c1, c2 = st.columns([3, 1])
                         with c1: st.write(f"**#{rank} {s.get('student')}** | Score: {s.get('score')}/{s.get('total')} ({s.get('percentage')}%) | ⏱️ {s.get('total_time_taken_str', 'N/A')}")
                         with c2:
-                            # UPDATED INDIVIDUAL REPORT WITH PER-QUESTION TIME & CLEAR LABELS
                             ind_csv = "Attempt,Q Number,Time on Question,Question Text,Student Answer,Correct Answer,Status\n"
                             
                             for attempt_idx, past in enumerate(s.get('past_attempts', [])):
@@ -496,7 +495,6 @@ if st.session_state.logged_in:
                         save_data('scores.json', scores)
                         clear_test_state(); st.rerun()
                 else:
-                    # --- NEW ACTIVE TEST ENGINE (ONE-BY-ONE & SHUFFLED) ---
                     if st.session_state.active_test_key != score_key:
                         if t_enabled: st.info(f"⏱️ **Time Limit:** {t_limit} Minutes.")
                         else: st.info("⏱️ **No Time Limit** for this test.")
@@ -506,7 +504,7 @@ if st.session_state.logged_in:
                                 'active_test_key': score_key, 
                                 'test_start_time': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                                 'last_time': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                                'shuffled_qs': random.sample(final_qs, len(final_qs)), # SHUFFLES QUESTIONS
+                                'shuffled_qs': random.sample(final_qs, len(final_qs)),
                                 'current_q': 0, 's_answers': {},
                                 'q_times': {i: 0 for i in range(len(final_qs))}
                             })
@@ -518,7 +516,6 @@ if st.session_state.logged_in:
                         
                         if t_enabled and now > end_dt + timedelta(seconds=10):
                             st.error("❌ Time expired! Auto-submitting current answers.")
-                            # AUTO SUBMIT LOGIC
                             sqs = st.session_state.shuffled_qs
                             score = sum([1 for i, q in enumerate(sqs) if st.session_state.s_answers.get(i) == q.get('answer')])
                             
@@ -544,7 +541,6 @@ if st.session_state.logged_in:
                             if t_enabled: st.warning(f"⏳ **Submit before:** {end_dt.strftime('%I:%M %p')}")
                             else: st.success("🟢 Test in progress. Take your time.")
                             
-                            # RENDER SINGLE QUESTION
                             sqs = st.session_state.shuffled_qs
                             idx = st.session_state.current_q
                             current_q = sqs[idx]
@@ -556,7 +552,6 @@ if st.session_state.logged_in:
                             st.subheader(current_q.get('question'))
                             opts = [f"A) {current_q.get('A')}", f"B) {current_q.get('B')}", f"C) {current_q.get('C')}", f"D) {current_q.get('D')}"]
                             
-                            # Format existing answer
                             existing_ans = st.session_state.s_answers.get(idx)
                             ans_idx = None
                             if existing_ans:
@@ -567,9 +562,8 @@ if st.session_state.logged_in:
                             selected_letter = choice[0] if choice else None
                             
                             st.markdown("---")
-                            c1, c2 = st.columns(2)
+                            st.info("⚠️ **Security Lock:** Once you move to the next question, your answer is locked and you cannot return.")
                             
-                            # Function to calculate micro-analytics time
                             def update_time_and_save():
                                 current_now = datetime.now()
                                 last_t = datetime.strptime(st.session_state.last_time, "%Y-%m-%d %H:%M:%S")
@@ -577,37 +571,30 @@ if st.session_state.logged_in:
                                 st.session_state.last_time = current_now.strftime("%Y-%m-%d %H:%M:%S")
                                 st.session_state.s_answers[idx] = selected_letter
 
-                            with c1:
-                                if idx > 0:
-                                    if st.button("⬅️ Save & Previous"):
-                                        update_time_and_save()
-                                        st.session_state.current_q -= 1
-                                        st.rerun()
-                            with c2:
-                                if idx < len(sqs) - 1:
-                                    if st.button("Save & Next ➡️"):
-                                        update_time_and_save()
-                                        st.session_state.current_q += 1
-                                        st.rerun()
-                                else:
-                                    if st.button("✅ Submit Final Test", type="primary"):
-                                        update_time_and_save()
-                                        score = sum([1 for i, q in enumerate(sqs) if st.session_state.s_answers.get(i) == q.get('answer')])
-                                        
-                                        details = []
-                                        total_time_sec = 0
-                                        for i, q in enumerate(sqs):
-                                            t_sec = st.session_state.q_times.get(i, 0)
-                                            total_time_sec += t_sec
-                                            m, s = divmod(int(t_sec), 60)
-                                            details.append({
-                                                "question": q.get('question'), "options": {"A": q.get('A'), "B": q.get('B'), "C": q.get('C'), "D": q.get('D')}, 
-                                                "student_answer": st.session_state.s_answers.get(i), "correct_answer": q.get('answer'),
-                                                "time_spent_str": f"{m}m {s}s"
-                                            })
-                                        
-                                        tot_m, tot_s = divmod(int(total_time_sec), 60)
-                                        scores = load_data('scores.json')
-                                        past_attempts = scores.get(score_key, {}).get("past_attempts", [])
-                                        scores[score_key] = {"student": st.session_state.username, "institution": st.session_state.institution, "department": sel_dept, "subject": sel_sub, "test_name": sel_test, "score": score, "total": len(sqs), "percentage": round((score/len(sqs))*100, 2), "retake_status": "none", "details": details, "total_time_taken_seconds": total_time_sec, "total_time_taken_str": f"{tot_m}m {tot_s}s", "past_attempts": past_attempts}
-                                        save_data('scores.json', scores); clear_test_state(); st.rerun()
+                            if idx < len(sqs) - 1:
+                                if st.button("Lock Answer & Next ➡️", type="primary"):
+                                    update_time_and_save()
+                                    st.session_state.current_q += 1
+                                    st.rerun()
+                            else:
+                                if st.button("✅ Lock Answer & Submit Test", type="primary"):
+                                    update_time_and_save()
+                                    score = sum([1 for i, q in enumerate(sqs) if st.session_state.s_answers.get(i) == q.get('answer')])
+                                    
+                                    details = []
+                                    total_time_sec = 0
+                                    for i, q in enumerate(sqs):
+                                        t_sec = st.session_state.q_times.get(i, 0)
+                                        total_time_sec += t_sec
+                                        m, s = divmod(int(t_sec), 60)
+                                        details.append({
+                                            "question": q.get('question'), "options": {"A": q.get('A'), "B": q.get('B'), "C": q.get('C'), "D": q.get('D')}, 
+                                            "student_answer": st.session_state.s_answers.get(i), "correct_answer": q.get('answer'),
+                                            "time_spent_str": f"{m}m {s}s"
+                                        })
+                                    
+                                    tot_m, tot_s = divmod(int(total_time_sec), 60)
+                                    scores = load_data('scores.json')
+                                    past_attempts = scores.get(score_key, {}).get("past_attempts", [])
+                                    scores[score_key] = {"student": st.session_state.username, "institution": st.session_state.institution, "department": sel_dept, "subject": sel_sub, "test_name": sel_test, "score": score, "total": len(sqs), "percentage": round((score/len(sqs))*100, 2), "retake_status": "none", "details": details, "total_time_taken_seconds": total_time_sec, "total_time_taken_str": f"{tot_m}m {tot_s}s", "past_attempts": past_attempts}
+                                    save_data('scores.json', scores); clear_test_state(); st.rerun()
