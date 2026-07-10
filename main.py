@@ -72,7 +72,6 @@ if 'test_submitted' not in st.session_state: st.session_state.test_submitted = F
 if 'student_score' not in st.session_state: st.session_state.student_score = 0
 if 'test_total' not in st.session_state: st.session_state.test_total = 0
 
-# Professor Navigation States
 if 'prof_dept' not in st.session_state: st.session_state.prof_dept = None
 if 'prof_subject' not in st.session_state: st.session_state.prof_subject = None
 if 'prof_test' not in st.session_state: st.session_state.prof_test = None
@@ -291,14 +290,12 @@ if st.session_state.logged_in:
         my_prof = creds.get(st.session_state.username, {})
         my_depts, my_subs = my_prof.get("departments", ["General"]), my_prof.get("subjects", ["General"])
 
-        # STATE 1: Choose Department
         if st.session_state.prof_dept is None:
             st.header(f"🏠 Welcome, Professor {st.session_state.username}")
             st.write("Select a Department:")
             for d in my_depts:
                 if st.button(f"📁 {d}", use_container_width=True): st.session_state.prof_dept = d; st.rerun()
                 
-        # STATE 2: Choose Subject
         elif st.session_state.prof_subject is None:
             st.header(f"📁 {st.session_state.prof_dept}")
             if st.button("⬅️ Back to Departments"): st.session_state.prof_dept = None; st.rerun()
@@ -307,40 +304,31 @@ if st.session_state.logged_in:
             for s in my_subs:
                 if st.button(f"📘 {s}", use_container_width=True): st.session_state.prof_subject = s; st.rerun()
                 
-        # STATE 3: Choose or Create Test
         elif st.session_state.prof_test is None:
             st.header(f"📘 {st.session_state.prof_subject} (Tests & Quizzes)")
             if st.button("⬅️ Back to Subjects"): st.session_state.prof_subject = None; st.rerun()
             st.markdown("---")
             
             qs = load_data('questions.json')
-            
-            # Find all unique test names created by this professor for this specific department & subject
             existing_tests = sorted(list(set([
                 q.get("test_name") for q in qs 
-                if isinstance(q, dict) 
-                and q.get("professor") == st.session_state.username 
-                and q.get("department") == st.session_state.prof_dept 
-                and q.get("subject") == st.session_state.prof_subject
-                and q.get("test_name") # ensure it exists
+                if isinstance(q, dict) and q.get("professor") == st.session_state.username 
+                and q.get("department") == st.session_state.prof_dept and q.get("subject") == st.session_state.prof_subject and q.get("test_name")
             ])))
             
             st.subheader("Manage Existing Tests")
             if not existing_tests: st.info("No tests created for this subject yet.")
             for t in existing_tests:
-                if st.button(f"📝 {t}", use_container_width=True): 
-                    st.session_state.prof_test = t; st.rerun()
+                if st.button(f"📝 {t}", use_container_width=True): st.session_state.prof_test = t; st.rerun()
                     
             st.markdown("---")
             with st.form("new_test_form", clear_on_submit=True):
                 st.subheader("Create a New Test")
                 new_t = st.text_input("Enter Test Name (e.g., Chapter 1 Quiz)")
                 if st.form_submit_button("Create & Manage Test"):
-                    if new_t: 
-                        st.session_state.prof_test = new_t.strip(); st.rerun()
+                    if new_t: st.session_state.prof_test = new_t.strip(); st.rerun()
                     else: st.warning("Please enter a name for the new test.")
                     
-        # STATE 4: Inside the specific test dashboard
         else:
             col1, col2 = st.columns([3, 1])
             with col1: st.header(f"📝 {st.session_state.prof_test}")
@@ -365,22 +353,16 @@ if st.session_state.logged_in:
                             qs.append({
                                 "professor": st.session_state.username, "institution": st.session_state.institution, 
                                 "department": st.session_state.prof_dept, "subject": st.session_state.prof_subject, 
-                                "test_name": st.session_state.prof_test, # NEW DATA POINT SAVED HERE
+                                "test_name": st.session_state.prof_test,
                                 "question": q_txt, "A": oa, "B": ob, "C": oc, "D": od, "answer": ans
                             })
                             save_data('questions.json', qs); st.success("✅ Saved! Form cleared.")
                         else: st.error("Please fill out all fields.")
             with tab2:
                 qs = load_data('questions.json')
-                
-                # Filter bank to ONLY show questions for this specific test
                 my_qs = [
-                    q for q in qs 
-                    if isinstance(q, dict) 
-                    and q.get("professor") == st.session_state.username 
-                    and q.get("department") == st.session_state.prof_dept 
-                    and q.get("subject") == st.session_state.prof_subject
-                    and q.get("test_name") == st.session_state.prof_test
+                    q for q in qs if isinstance(q, dict) and q.get("professor") == st.session_state.username 
+                    and q.get("department") == st.session_state.prof_dept and q.get("subject") == st.session_state.prof_subject and q.get("test_name") == st.session_state.prof_test
                 ]
                 
                 if not my_qs: st.info("No questions in this test bank yet.")
@@ -392,14 +374,9 @@ if st.session_state.logged_in:
             
             with tab3:
                 scores = load_data('scores.json')
-                
-                # Filter scores to ONLY show data for this specific test
                 f_scores = {
-                    k: v for k, v in scores.items() 
-                    if isinstance(v, dict) 
-                    and v.get("department") == st.session_state.prof_dept 
-                    and v.get("subject") == st.session_state.prof_subject
-                    and v.get("test_name") == st.session_state.prof_test
+                    k: v for k, v in scores.items() if isinstance(v, dict) and v.get("department") == st.session_state.prof_dept 
+                    and v.get("subject") == st.session_state.prof_subject and v.get("test_name") == st.session_state.prof_test
                 }
                 
                 reqs = {k: v for k, v in f_scores.items() if v.get("retake_status") == "requested"}
@@ -410,14 +387,12 @@ if st.session_state.logged_in:
                         with c1: st.write(f"**{v.get('student')}** wants to retake. (Previous Score: {v.get('percentage')}%)")
                         with c2: 
                             if st.button("Approve Retake", key=f"app_ret_{k}"):
-                                scores[k]["retake_status"] = "approved"
-                                save_data('scores.json', scores); st.rerun()
+                                scores[k]["retake_status"] = "approved"; save_data('scores.json', scores); st.rerun()
                     st.markdown("---")
 
                 if not f_scores: st.info("No scores yet.")
                 else:
-                    for k, s in f_scores.items(): 
-                        st.write(f"**{s.get('student')}**: {s.get('score')}/{s.get('total')} ({s.get('percentage')}%)")
+                    for k, s in f_scores.items(): st.write(f"**{s.get('student')}**: {s.get('score')}/{s.get('total')} ({s.get('percentage')}%)")
 
     # === 4. STUDENT TEST PORTAL ===
     elif st.session_state.role == "Student":
@@ -435,7 +410,6 @@ if st.session_state.logged_in:
             sel_sub = st.selectbox("2. Select Subject:", subs)
             sub_qs = [q for q in dept_qs if q.get("subject") == sel_sub]
             
-            # NEW: Select the specific test
             tests = sorted(list(set([q.get("test_name", "General Test") for q in sub_qs if q.get("test_name")])))
             sel_test = st.selectbox("3. Select Test:", tests)
             
@@ -449,8 +423,24 @@ if st.session_state.logged_in:
                 if score_key in scores and scores[score_key].get("retake_status") != "approved":
                     s_data = scores[score_key]
                     st.success("✅ Test Completed")
-                    st.metric("Your Score", f"{s_data.get('score')}/{s_data.get('total')} ({s_data.get('percentage')}%)")
+                    st.metric("Your Final Score", f"{s_data.get('score')}/{s_data.get('total')} ({s_data.get('percentage')}%)")
                     
+                    # --- NEW TEST REVIEW SECTION ---
+                    with st.expander("📝 View Test Review", expanded=True):
+                        st.subheader("Your Answers vs. Correct Answers")
+                        for i, d in enumerate(s_data.get("details", [])):
+                            st.write(f"**Q{i+1}: {d['question']}**")
+                            
+                            if not d.get('student_answer'):
+                                st.error("❌ You did not answer this question.")
+                                st.info(f"💡 Correct Answer: {d['correct_answer']}) {d['options'].get(d['correct_answer'])}")
+                            elif d['student_answer'] == d['correct_answer']:
+                                st.success(f"✅ Your Answer: {d['student_answer']}) {d['options'].get(d['student_answer'])} (Correct!)")
+                            else:
+                                st.error(f"❌ Your Answer: {d['student_answer']}) {d['options'].get(d['student_answer'])}")
+                                st.info(f"💡 Correct Answer: {d['correct_answer']}) {d['options'].get(d['correct_answer'])}")
+                            st.markdown("---")
+
                     status = s_data.get("retake_status", "none")
                     if status == "requested":
                         st.info("⏳ Your request to retake this test is pending professor approval.")
@@ -476,13 +466,27 @@ if st.session_state.logged_in:
                             st.subheader(f"Q{i+1}: {q.get('question')}")
                             s_ans[i] = st.radio("Answer:", [f"A) {q.get('A')}", f"B) {q.get('B')}", f"C) {q.get('C')}", f"D) {q.get('D')}"], index=None, key=f"q_{i}")
                         if st.form_submit_button("Submit Test"):
-                            score = sum([1 for i, q in enumerate(final_qs) if s_ans[i] and s_ans[i][0] == q.get('answer')])
-                            
+                            score = 0
+                            details = []
+                            for i, q in enumerate(final_qs):
+                                ans_full = s_ans[i]
+                                ans_letter = ans_full[0] if ans_full else None
+                                if ans_letter == q.get('answer'): 
+                                    score += 1
+                                # Capturing snapshot for the review
+                                details.append({
+                                    "question": q.get('question'),
+                                    "options": {"A": q.get('A'), "B": q.get('B'), "C": q.get('C'), "D": q.get('D')},
+                                    "student_answer": ans_letter,
+                                    "correct_answer": q.get('answer')
+                                })
+                                
                             scores = load_data('scores.json')
                             scores[score_key] = {
                                 "student": st.session_state.username, "institution": st.session_state.institution,
                                 "department": sel_dept, "subject": sel_sub, "test_name": sel_test,
                                 "score": score, "total": len(final_qs),
-                                "percentage": round((score/len(final_qs))*100, 2), "retake_status": "none"
+                                "percentage": round((score/len(final_qs))*100, 2), "retake_status": "none",
+                                "details": details # Saves the review snapshot
                             }
                             save_data('scores.json', scores); st.rerun()
