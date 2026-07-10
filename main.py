@@ -79,7 +79,6 @@ if 'prof_dept' not in st.session_state: st.session_state.prof_dept = None
 if 'prof_subject' not in st.session_state: st.session_state.prof_subject = None
 if 'prof_test' not in st.session_state: st.session_state.prof_test = None
 
-# NEW TIMER STATES
 if 'active_test_key' not in st.session_state: st.session_state.active_test_key = None
 if 'test_start_time' not in st.session_state: st.session_state.test_start_time = None
 
@@ -167,7 +166,7 @@ if st.session_state.logged_in:
             
     st.markdown("---")
     
-    # === 1. SUPER ADMIN DASHBOARD ===
+    # === SUPER ADMIN ===
     if st.session_state.role == "SuperAdmin":
         st.header("👑 Platform Administrator Dashboard")
         sa_tab1, sa_tab2, sa_tab3 = st.tabs(["Pending Registrations", "Manage Active Institutions", "Institution Deletion Requests"])
@@ -215,7 +214,7 @@ if st.session_state.logged_in:
                         if r in reqs: reqs.remove(r); save_data('deletion_requests.json', reqs)
                         st.rerun()
 
-    # === 2. INSTITUTION ADMIN DASHBOARD ===
+    # === INSTITUTION ADMIN ===
     elif st.session_state.role == "Admin":
         insts = load_data('institutions.json')
         my_inst = insts.get(st.session_state.institution, {})
@@ -278,7 +277,7 @@ if st.session_state.logged_in:
             with admin_tab3:
                 st.subheader("Institution Account Deletion")
                 with st.form("del_req_form", clear_on_submit=True):
-                    st.warning("⚠️ DISCLAIMER: Your account will be scheduled for permanent deletion inside a 3-day window once approved by the Platform Administrator. You can undo this request anytime within the due date by logging back into this Admin portal and clicking Recover Account.")
+                    st.warning("⚠️ DISCLAIMER: Your account will be scheduled for permanent deletion inside a 3-day window once approved by the Platform Administrator.")
                     confirm_del = st.checkbox("I have read the disclaimer and confirm my deletion request.")
                     
                     if st.form_submit_button("Submit Deletion Request", type="primary"):
@@ -289,7 +288,7 @@ if st.session_state.logged_in:
                                 reqs.append({"username": st.session_state.institution, "role": "Admin", "institution": st.session_state.institution})
                                 save_data('deletion_requests.json', reqs)
                                 st.success("✅ Request sent to Platform Administrator.")
-                        else: st.error("Please check the confirmation box to proceed.")
+                        else: st.error("Please check the confirmation box.")
 
     # === 3. PROFESSOR DASHBOARD ===
     elif st.session_state.role == "Professor":
@@ -332,8 +331,6 @@ if st.session_state.logged_in:
             with st.form("new_test_form", clear_on_submit=True):
                 st.subheader("Create a New Test")
                 new_t = st.text_input("Enter Test Name (e.g., Chapter 1 Quiz)")
-                
-                # --- NEW TIMER INPUT FOR PROFESSORS ---
                 t_limit = st.number_input("Time Limit (in Minutes)", min_value=1, max_value=180, value=15)
                 
                 if st.form_submit_button("Create & Manage Test"):
@@ -342,9 +339,7 @@ if st.session_state.logged_in:
                         t_key = f"{st.session_state.institution}_{st.session_state.prof_dept}_{st.session_state.prof_subject}_{new_t.strip()}"
                         tests_db[t_key] = {"time_limit": t_limit}
                         save_data('tests.json', tests_db)
-                        
-                        st.session_state.prof_test = new_t.strip()
-                        st.rerun()
+                        st.session_state.prof_test = new_t.strip(); st.rerun()
                     else: st.warning("Please enter a name for the new test.")
                     
         else:
@@ -374,7 +369,7 @@ if st.session_state.logged_in:
                                 "test_name": st.session_state.prof_test,
                                 "question": q_txt, "A": oa, "B": ob, "C": oc, "D": od, "answer": ans
                             })
-                            save_data('questions.json', qs); st.success("✅ Saved! Form cleared.")
+                            save_data('questions.json', qs); st.success("✅ Saved!")
                         else: st.error("Please fill out all fields.")
             with tab2:
                 qs = load_data('questions.json')
@@ -382,8 +377,6 @@ if st.session_state.logged_in:
                     q for q in qs if isinstance(q, dict) and q.get("professor") == st.session_state.username 
                     and q.get("department") == st.session_state.prof_dept and q.get("subject") == st.session_state.prof_subject and q.get("test_name") == st.session_state.prof_test
                 ]
-                
-                if not my_qs: st.info("No questions in this test bank yet.")
                 for i, q in enumerate(my_qs):
                     with st.expander(q.get("question", "")[:50]):
                         st.write(f"**A:** {q.get('A')} | **B:** {q.get('B')} | **C:** {q.get('C')} | **D:** {q.get('D')}")
@@ -438,10 +431,9 @@ if st.session_state.logged_in:
                 score_key = f"{st.session_state.institution}_{st.session_state.username}_{sel_dept}_{sel_sub}_{sel_test}"
                 scores = load_data('scores.json')
                 
-                # Fetch Time Limit Data
                 tests_db = load_data('tests.json')
                 t_key = f"{st.session_state.institution}_{sel_dept}_{sel_sub}_{sel_test}"
-                t_limit = tests_db.get(t_key, {}).get("time_limit", 15) # defaults to 15 min if old test
+                t_limit = tests_db.get(t_key, {}).get("time_limit", 15)
                 
                 if score_key in scores and scores[score_key].get("retake_status") != "approved":
                     s_data = scores[score_key]
@@ -449,93 +441,44 @@ if st.session_state.logged_in:
                     st.metric("Your Final Score", f"{s_data.get('score')}/{s_data.get('total')} ({s_data.get('percentage')}%)")
                     
                     with st.expander("📝 View Test Review", expanded=True):
-                        st.subheader("Your Answers vs. Correct Answers")
                         for i, d in enumerate(s_data.get("details", [])):
                             st.write(f"**Q{i+1}: {d['question']}**")
-                            
-                            if not d.get('student_answer'):
-                                st.error("❌ You did not answer this question.")
-                                st.info(f"💡 Correct Answer: {d['correct_answer']}) {d['options'].get(d['correct_answer'])}")
-                            elif d['student_answer'] == d['correct_answer']:
-                                st.success(f"✅ Your Answer: {d['student_answer']}) {d['options'].get(d['student_answer'])} (Correct!)")
+                            if d['student_answer'] == d['correct_answer']:
+                                st.success(f"✅ Your Answer: {d['student_answer']}) {d['options'].get(d['student_answer'])}")
                             else:
                                 st.error(f"❌ Your Answer: {d['student_answer']}) {d['options'].get(d['student_answer'])}")
-                                st.info(f"💡 Correct Answer: {d['correct_answer']}) {d['options'].get(d['correct_answer'])}")
+                                st.info(f"💡 Correct: {d['correct_answer']}) {d['options'].get(d['correct_answer'])}")
                             st.markdown("---")
 
-                    status = s_data.get("retake_status", "none")
-                    if status == "requested":
-                        st.info("⏳ Your request to retake this test is pending professor approval.")
-                    else:
-                        if st.button("Request Retake"):
-                            scores[score_key]["retake_status"] = "requested"
-                            save_data('scores.json', scores)
-                            st.rerun()
-                            
-                elif score_key in scores and scores[score_key].get("retake_status") == "approved":
-                    st.success("🎉 Your professor has approved your retake request!")
-                    if st.button("Start Retake Now", type="primary"):
-                        del scores[score_key] 
-                        save_data('scores.json', scores)
-                        st.session_state.active_test_key = None
-                        st.session_state.test_start_time = None
-                        st.rerun()
+                    if scores[score_key].get("retake_status") == "requested": st.info("⏳ Retake pending approval.")
+                    elif st.button("Request Retake"):
+                        scores[score_key]["retake_status"] = "requested"
+                        save_data('scores.json', scores); st.rerun()
                         
+                elif score_key in scores and scores[score_key].get("retake_status") == "approved":
+                    st.success("🎉 Retake approved!")
+                    if st.button("Start Retake Now", type="primary"):
+                        del scores[score_key]; save_data('scores.json', scores)
+                        st.session_state.active_test_key = None; st.session_state.test_start_time = None; st.rerun()
                 else:
-                    # --- NEW TIMER ENFORCEMENT START ---
                     if st.session_state.active_test_key != score_key:
-                        st.info(f"⏱️ **Time Limit:** {t_limit} Minutes. The timer will begin immediately once you click Start.")
+                        st.info(f"⏱️ **Time Limit:** {t_limit} Minutes.")
                         if st.button("Start Test", type="primary"):
-                            st.session_state.active_test_key = score_key
-                            st.session_state.test_start_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                            st.session_state.update({'active_test_key': score_key, 'test_start_time': datetime.now().strftime("%Y-%m-%d %H:%M:%S")})
                             st.rerun()
                     else:
                         start_dt = datetime.strptime(st.session_state.test_start_time, "%Y-%m-%d %H:%M:%S")
                         end_dt = start_dt + timedelta(minutes=t_limit)
-                        
-                        st.warning(f"⏳ **Time Remaining:** Your test automatically closes at **{end_dt.strftime('%I:%M %p')}**. (Please submit before then!)")
-                        
-                        st.markdown("---")
+                        st.warning(f"⏳ **Submit before:** {end_dt.strftime('%I:%M %p')}")
                         with st.form("test_form"):
                             s_ans = {}
                             for i, q in enumerate(final_qs):
                                 st.subheader(f"Q{i+1}: {q.get('question')}")
                                 s_ans[i] = st.radio("Answer:", [f"A) {q.get('A')}", f"B) {q.get('B')}", f"C) {q.get('C')}", f"D) {q.get('D')}"], index=None, key=f"q_{i}")
-                            
                             if st.form_submit_button("Submit Test"):
                                 now = datetime.now()
-                                
-                                # TIMER CHECK (with 30 second grace period for network lag)
-                                if now > end_dt + timedelta(seconds=30):
-                                    scores = load_data('scores.json')
-                                    scores[score_key] = {
-                                        "student": st.session_state.username, "institution": st.session_state.institution,
-                                        "department": sel_dept, "subject": sel_sub, "test_name": sel_test,
-                                        "score": 0, "total": len(final_qs), "percentage": 0, "retake_status": "none",
-                                        "details": [] 
-                                    }
-                                    save_data('scores.json', scores)
-                                    st.session_state.active_test_key = None
-                                    st.session_state.test_start_time = None
-                                    st.error("❌ Time expired! Your submission was late. A score of 0 has been recorded. Please request a retake.")
-                                    st.rerun()
-                                else:
-                                    # Normal Scoring
-                                    score = 0
-                                    details = []
-                                    for i, q in enumerate(final_qs):
-                                        ans_full = s_ans[i]
-                                        ans_letter = ans_full[0] if ans_full else None
-                                        if ans_letter == q.get('answer'): score += 1
-                                        details.append({
-                                            "question": q.get('question'),
-                                            "options": {"A": q.get('A'), "B": q.get('B'), "C": q.get('C'), "D": q.get('D')},
-                                            "student_answer": ans_letter, "correct_answer": q.get('answer')
-                                        })
-                                        
-                                    scores = load_data('scores.json')
-                                    scores[score_key] = {
-                                        "student": st.session_state.username, "institution": st.session_state.institution,
-                                        "department": sel_dept, "subject": sel_sub, "test_name": sel_test,
-                                        "score": score, "total": len(final_qs),
-                                        "percentage": round((score/len
+                                score = sum([1 for i, q in enumerate(final_qs) if s_ans[i] and s_ans[i][0] == q.get('answer')])
+                                details = [{"question": q.get('question'), "options": {"A": q.get('A'), "B": q.get('B'), "C": q.get('C'), "D": q.get('D')}, "student_answer": (s_ans[i][0] if s_ans[i] else None), "correct_answer": q.get('answer')} for i, q in enumerate(final_qs)]
+                                scores = load_data('scores.json')
+                                scores[score_key] = {"student": st.session_state.username, "institution": st.session_state.institution, "department": sel_dept, "subject": sel_sub, "test_name": sel_test, "score": score if now <= end_dt + timedelta(seconds=30) else 0, "total": len(final_qs), "percentage": round((score/len(final_qs))*100, 2), "retake_status": "none", "details": details}
+                                save_data('scores.json', scores); st.session_state.update({'active_test_key': None, 'test_start_time': None}); st.rerun()
