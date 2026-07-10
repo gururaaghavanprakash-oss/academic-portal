@@ -68,8 +68,14 @@ if 'logged_in' not in st.session_state: st.session_state.logged_in = False
 if 'role' not in st.session_state: st.session_state.role = None
 if 'username' not in st.session_state: st.session_state.username = ""
 if 'institution' not in st.session_state: st.session_state.institution = ""
+if 'test_submitted' not in st.session_state: st.session_state.test_submitted = False
+if 'student_score' not in st.session_state: st.session_state.student_score = 0
+if 'test_total' not in st.session_state: st.session_state.test_total = 0
+
+# Professor Navigation States
 if 'prof_dept' not in st.session_state: st.session_state.prof_dept = None
 if 'prof_subject' not in st.session_state: st.session_state.prof_subject = None
+if 'prof_test' not in st.session_state: st.session_state.prof_test = None
 
 process_expired_deletions()
 
@@ -88,7 +94,7 @@ if not st.session_state.logged_in:
             creds = load_data('credentials.json')
             if prof_id in creds and isinstance(creds[prof_id], dict) and creds[prof_id].get("passcode") == passcode:
                 st.session_state.update({'logged_in': True, 'role': 'Professor', 'username': prof_id, 
-                                         'institution': creds[prof_id].get("institution", ""), 'prof_dept': None, 'prof_subject': None})
+                                         'institution': creds[prof_id].get("institution", ""), 'prof_dept': None, 'prof_subject': None, 'prof_test': None})
                 st.rerun()
             else: st.error("Invalid credentials.")
 
@@ -149,7 +155,8 @@ if st.session_state.logged_in:
     with col_a: st.success(f"User: {st.session_state.username} | Role: {st.session_state.role} | Inst: {st.session_state.institution}")
     with col_b: 
         if st.button("Log Out"):
-            for key in ['logged_in', 'role', 'username', 'institution', 'prof_dept', 'prof_subject']: st.session_state[key] = None
+            for key in ['logged_in', 'role', 'username', 'institution', 'prof_dept', 'prof_subject', 'prof_test']: 
+                st.session_state[key] = None
             st.rerun()
             
     st.markdown("---")
@@ -284,22 +291,66 @@ if st.session_state.logged_in:
         my_prof = creds.get(st.session_state.username, {})
         my_depts, my_subs = my_prof.get("departments", ["General"]), my_prof.get("subjects", ["General"])
 
+        # STATE 1: Choose Department
         if st.session_state.prof_dept is None:
             st.header(f"🏠 Welcome, Professor {st.session_state.username}")
             st.write("Select a Department:")
             for d in my_depts:
                 if st.button(f"📁 {d}", use_container_width=True): st.session_state.prof_dept = d; st.rerun()
+                
+        # STATE 2: Choose Subject
         elif st.session_state.prof_subject is None:
             st.header(f"📁 {st.session_state.prof_dept}")
-            if st.button("⬅️ Back"): st.session_state.prof_dept = None; st.rerun()
+            if st.button("⬅️ Back to Departments"): st.session_state.prof_dept = None; st.rerun()
             st.markdown("---")
+            st.write("Select a Subject:")
             for s in my_subs:
                 if st.button(f"📘 {s}", use_container_width=True): st.session_state.prof_subject = s; st.rerun()
+                
+        # STATE 3: Choose or Create Test
+        elif st.session_state.prof_test is None:
+            st.header(f"📘 {st.session_state.prof_subject} (Tests & Quizzes)")
+            if st.button("⬅️ Back to Subjects"): st.session_state.prof_subject = None; st.rerun()
+            st.markdown("---")
+            
+            qs = load_data('questions.json')
+            
+            # Find all unique test names created by this professor for this specific department & subject
+            existing_tests = sorted(list(set([
+                q.get("test_name") for q in qs 
+                if isinstance(q, dict) 
+                and q.get("professor") == st.session_state.username 
+                and q.get("department") == st.session_state.prof_dept 
+                and q.get("subject") == st.session_state.prof_subject
+                and q.get("test_name") # ensure it exists
+            ])))
+            
+            st.subheader("Manage Existing Tests")
+            if not existing_tests: st.info("No tests created for this subject yet.")
+            for t in existing_tests:
+                if st.button(f"📝 {t}", use_container_width=True): 
+                    st.session_state.prof_test = t; st.rerun()
+                    
+            st.markdown("---")
+            with st.form("new_test_form", clear_on_submit=True):
+                st.subheader("Create a New Test")
+                new_t = st.text_input("Enter Test Name (e.g., Chapter 1 Quiz)")
+                if st.form_submit_button("Create & Manage Test"):
+                    if new_t: 
+                        st.session_state.prof_test = new_t.strip(); st.rerun()
+                    else: st.warning("Please enter a name for the new test.")
+                    
+        # STATE 4: Inside the specific test dashboard
         else:
             col1, col2 = st.columns([3, 1])
-            with col1: st.header(f"📘 {st.session_state.prof_dept} - {st.session_state.prof_subject}")
+            with col1: st.header(f"📝 {st.session_state.prof_test}")
             with col2:
-                if st.button("🏠 Home Menu"): st.session_state.prof_dept = None; st.session_state.prof_subject = None; st.rerun()
+                if st.button("⬅️ Change Test"): st.session_state.prof_test = None; st.rerun()
+                if st.button("🏠 Home Menu"): 
+                    st.session_state.prof_dept = None
+                    st.session_state.prof_subject = None
+                    st.session_state.prof_test = None
+                    st.rerun()
             
             tab1, tab2, tab3 = st.tabs(["Add Question", "Bank", "Scores & Retakes"])
             with tab1:
@@ -311,26 +362,46 @@ if st.session_state.logged_in:
                     if st.form_submit_button("Save Question"):
                         if q_txt and oa and ob and oc and od:
                             qs = load_data('questions.json')
-                            qs.append({"professor": st.session_state.username, "institution": st.session_state.institution, 
-                                       "department": st.session_state.prof_dept, "subject": st.session_state.prof_subject, 
-                                       "question": q_txt, "A": oa, "B": ob, "C": oc, "D": od, "answer": ans})
+                            qs.append({
+                                "professor": st.session_state.username, "institution": st.session_state.institution, 
+                                "department": st.session_state.prof_dept, "subject": st.session_state.prof_subject, 
+                                "test_name": st.session_state.prof_test, # NEW DATA POINT SAVED HERE
+                                "question": q_txt, "A": oa, "B": ob, "C": oc, "D": od, "answer": ans
+                            })
                             save_data('questions.json', qs); st.success("✅ Saved! Form cleared.")
                         else: st.error("Please fill out all fields.")
             with tab2:
                 qs = load_data('questions.json')
-                my_qs = [q for q in qs if isinstance(q, dict) and q.get("professor") == st.session_state.username and q.get("department") == st.session_state.prof_dept and q.get("subject") == st.session_state.prof_subject]
+                
+                # Filter bank to ONLY show questions for this specific test
+                my_qs = [
+                    q for q in qs 
+                    if isinstance(q, dict) 
+                    and q.get("professor") == st.session_state.username 
+                    and q.get("department") == st.session_state.prof_dept 
+                    and q.get("subject") == st.session_state.prof_subject
+                    and q.get("test_name") == st.session_state.prof_test
+                ]
+                
+                if not my_qs: st.info("No questions in this test bank yet.")
                 for i, q in enumerate(my_qs):
                     with st.expander(q.get("question", "")[:50]):
                         st.write(f"**A:** {q.get('A')} | **B:** {q.get('B')} | **C:** {q.get('C')} | **D:** {q.get('D')}")
                         st.success(f"Ans: {q.get('answer')}")
                         if st.button("Delete Question", key=f"del_{i}"): qs.remove(q); save_data('questions.json', qs); st.rerun()
             
-            # PROFESSOR RETAKE APPROVALS SECTION
             with tab3:
                 scores = load_data('scores.json')
-                f_scores = {k: v for k, v in scores.items() if isinstance(v, dict) and v.get("department") == st.session_state.prof_dept and v.get("subject") == st.session_state.prof_subject}
                 
-                # Show Pending Retakes First
+                # Filter scores to ONLY show data for this specific test
+                f_scores = {
+                    k: v for k, v in scores.items() 
+                    if isinstance(v, dict) 
+                    and v.get("department") == st.session_state.prof_dept 
+                    and v.get("subject") == st.session_state.prof_subject
+                    and v.get("test_name") == st.session_state.prof_test
+                }
+                
                 reqs = {k: v for k, v in f_scores.items() if v.get("retake_status") == "requested"}
                 if reqs:
                     st.error("🚨 Pending Retake Requests")
@@ -362,14 +433,19 @@ if st.session_state.logged_in:
             
             subs = sorted(list(set([q.get("subject", "General") for q in dept_qs])))
             sel_sub = st.selectbox("2. Select Subject:", subs)
-            final_qs = [q for q in dept_qs if q.get("subject") == sel_sub]
+            sub_qs = [q for q in dept_qs if q.get("subject") == sel_sub]
+            
+            # NEW: Select the specific test
+            tests = sorted(list(set([q.get("test_name", "General Test") for q in sub_qs if q.get("test_name")])))
+            sel_test = st.selectbox("3. Select Test:", tests)
+            
+            final_qs = [q for q in sub_qs if q.get("test_name") == sel_test]
             
             if not final_qs: st.warning("No questions here.")
             else:
-                score_key = f"{st.session_state.institution}_{st.session_state.username}_{sel_dept}_{sel_sub}"
+                score_key = f"{st.session_state.institution}_{st.session_state.username}_{sel_dept}_{sel_sub}_{sel_test}"
                 scores = load_data('scores.json')
                 
-                # NEW STUDENT RETAKE LOGIC
                 if score_key in scores and scores[score_key].get("retake_status") != "approved":
                     s_data = scores[score_key]
                     st.success("✅ Test Completed")
@@ -387,12 +463,12 @@ if st.session_state.logged_in:
                 elif score_key in scores and scores[score_key].get("retake_status") == "approved":
                     st.success("🎉 Your professor has approved your retake request!")
                     if st.button("Start Retake Now", type="primary"):
-                        del scores[score_key] # Deletes old score to unlock test
+                        del scores[score_key] 
                         save_data('scores.json', scores)
                         st.rerun()
                         
                 else:
-                    st.write(f"Taking test for: **{sel_sub}**")
+                    st.write(f"Taking test: **{sel_test}**")
                     st.markdown("---")
                     with st.form("test_form"):
                         s_ans = {}
@@ -405,7 +481,8 @@ if st.session_state.logged_in:
                             scores = load_data('scores.json')
                             scores[score_key] = {
                                 "student": st.session_state.username, "institution": st.session_state.institution,
-                                "department": sel_dept, "subject": sel_sub, "score": score, "total": len(final_qs),
+                                "department": sel_dept, "subject": sel_sub, "test_name": sel_test,
+                                "score": score, "total": len(final_qs),
                                 "percentage": round((score/len(final_qs))*100, 2), "retake_status": "none"
                             }
                             save_data('scores.json', scores); st.rerun()
