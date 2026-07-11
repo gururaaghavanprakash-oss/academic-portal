@@ -197,6 +197,9 @@ if st.session_state.logged_in:
             else:
                 for k, v in pending.items():
                     with st.expander(f"🏫 {v.get('institute_name', 'Unknown')} (ID: {k}) - {v.get('inst_type', 'College')}"):
+                        st.write(f"**Contact Name:** {v.get('contact', 'N/A')}")
+                        st.write(f"**Email Address:** {v.get('email', 'N/A')}")
+                        st.write(f"**Phone Number:** {v.get('phone', 'N/A')}")
                         col1, col2 = st.columns(2)
                         with col1:
                             if st.button("Approve", key=f"app_{k}"): insts[k]["status"] = "approved"; save_data('institutions.json', insts); st.rerun()
@@ -208,12 +211,17 @@ if st.session_state.logged_in:
             if not approved: st.info("No approved institutions yet.")
             else:
                 for k, v in approved.items():
-                    col1, col2 = st.columns([3, 1])
-                    with col1:
-                        if v.get("status") == "scheduled_for_deletion": st.write(f"⚠️ **{v.get('institute_name')}** - *Pending Auto-Delete*")
-                        else: st.write(f"**{v.get('institute_name')}** (Admin ID: {k})")
-                    with col2:
-                        if st.button("Force Remove", key=f"force_del_{k}"): del insts[k]; save_data('institutions.json', insts); st.rerun()
+                    # --- UPGRADED ADMIN VISIBILITY FOR ACTIVE INSTS ---
+                    with st.expander(f"🏫 {v.get('institute_name', 'Unknown')} (Admin ID: {k}) - {v.get('inst_type', 'College')}"):
+                        st.write(f"**Contact Name:** {v.get('contact', 'N/A')}")
+                        st.write(f"**Email Address:** {v.get('email', 'N/A')}")
+                        st.write(f"**Phone Number:** {v.get('phone', 'N/A')}")
+                        
+                        if v.get("status") == "scheduled_for_deletion": 
+                            st.error(f"⚠️ *Pending Auto-Delete on {v.get('deletion_date')}*")
+                            
+                        if st.button("Force Remove", key=f"force_del_{k}"): 
+                            del insts[k]; save_data('institutions.json', insts); st.rerun()
                             
         with sa_tab3:
             reqs = load_data('deletion_requests.json')
@@ -294,7 +302,6 @@ if st.session_state.logged_in:
                                 save_data('credentials.json', creds); st.success(f"✅ {lbl_prof} added!")
                         else: st.warning("Please fill out all fields.")
             
-            # --- NEW ADD STUDENTS TAB ---
             with admin_tab3:
                 students = load_data('students.json')
                 with st.form("create_student_form", clear_on_submit=True):
@@ -303,9 +310,9 @@ if st.session_state.logged_in:
                     s_name = st.text_input("Full Name")
                     s_pass = st.text_input("Assign Password", type="password")
                     
-                    st.info(f"Make sure the {lbl_grp} exactly matches what {lbl_prof}s use.")
-                    s_grp = st.text_input(f"Assigned {lbl_grp} (e.g., {'Class 10' if is_school else 'Computer Science'})")
-                    s_subgrp = st.text_input(f"{lbl_sub} (e.g., {'Section A' if is_school else '1st Year'})")
+                    st.info(f"Make sure the {lbl_grp} exactly matches what {lbl_prof}s use (e.g., {'10' if is_school else 'Computer Science'})")
+                    s_grp = st.text_input(f"Assigned {lbl_grp}")
+                    s_subgrp = st.text_input(f"{lbl_sub} (Optional)" if is_school else f"{lbl_sub} (e.g., 1st Year)")
                     s_batch = st.text_input("Batch (e.g., 2022-2026)")
                     
                     if st.form_submit_button("Register Student"):
@@ -322,7 +329,6 @@ if st.session_state.logged_in:
                                 save_data('students.json', students); st.success("✅ Student Registered!")
                         else: st.warning("Please fill out all required fields.")
 
-            # --- NEW MANAGE STUDENTS TAB ---
             with admin_tab4:
                 students = load_data('students.json')
                 inst_students = {k: v for k, v in students.items() if isinstance(v, dict) and v.get("institution") == st.session_state.institution}
@@ -367,7 +373,6 @@ if st.session_state.logged_in:
                             for sk in year_students.keys(): students[sk]["status"] = "graduated"
                             save_data('students.json', students); st.success("Students moved to Alumni Archive!"); st.rerun()
 
-            # --- NEW GRADUATED BATCHES TAB ---
             with admin_tab5:
                 st.subheader("🎓 Alumni Archive")
                 students = load_data('students.json')
@@ -382,7 +387,7 @@ if st.session_state.logged_in:
                     
                     batch_students = {k: v for k, v in grad_students.items() if v.get("batch", "Unknown") == sel_batch}
                     depts = sorted(list(set([v.get("group") for v in batch_students.values()])))
-                    sel_dept = st.selectbox(f"2. Select {lbl_grp}:", depts)
+                    sel_dept = st.selectbox(f"2. Select {lbl_grp}:", depts, key="grad_dept_sel")
                     
                     final_grads = {k: v for k, v in batch_students.items() if v.get("group") == sel_dept}
                     
@@ -398,8 +403,9 @@ if st.session_state.logged_in:
             with admin_tab6:
                 st.subheader("Institution Account Deletion")
                 with st.form("del_req_form", clear_on_submit=True):
-                    st.warning("⚠️ DISCLAIMER: Your account will be scheduled for permanent deletion.")
-                    confirm_del = st.checkbox("I confirm my deletion request.")
+                    # --- RESTORED FULL DISCLAIMER ---
+                    st.warning("⚠️ DISCLAIMER: Your account will be scheduled for permanent deletion inside a 3-day window once approved by the Platform Administrator. You can undo this request anytime within the due date by logging back into this Admin portal and clicking Recover Account.")
+                    confirm_del = st.checkbox("I have read the disclaimer and confirm my deletion request.")
                     if st.form_submit_button("Submit Deletion Request", type="primary"):
                         if confirm_del:
                             reqs = load_data('deletion_requests.json')
