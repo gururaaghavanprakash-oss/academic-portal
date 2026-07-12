@@ -75,7 +75,7 @@ keys_to_init = {
     'test_submitted': False, 'student_score': 0, 'test_total': 0, 
     'student_name': "", 'student_group': "", 'student_subgroup': "",
     'prof_dept': None, 'prof_subject': None, 'prof_test': None,
-    'student_view_subject': None, 'student_view_test': None,  # NEW STUDENT NAV STATES
+    'student_view_subject': None, 'student_view_test': None,
     'active_test_key': None, 'test_start_time': None, 'shuffled_qs': [], 'current_q': 0, 
     's_answers': {}, 'q_times': {}, 'last_time': None
 }
@@ -251,7 +251,9 @@ if st.session_state.logged_in:
                 save_data('institutions.json', insts); st.rerun()
         else:
             st.header(f"🛡️ {st.session_state.institution} Admin Dashboard")
-            admin_tab1, admin_tab2, admin_tab3, admin_tab4, admin_tab5, admin_tab6 = st.tabs([f"Manage {lbl_prof}s", f"Add {lbl_prof}", "Add Students", "Manage Students", "Graduated Batches", "Settings"])
+            admin_tab1, admin_tab2, admin_tab3, admin_tab4, admin_tab5, admin_tab6 = st.tabs([
+                f"Manage {lbl_prof}s", f"Add {lbl_prof}", "Add Students", "Manage Students", "Graduated Batches", "Settings"
+            ])
             
             with admin_tab1:
                 creds = load_data('credentials.json')
@@ -302,16 +304,23 @@ if st.session_state.logged_in:
                     s_user = st.text_input("Student Username / Roll No.")
                     s_name = st.text_input("Full Name")
                     s_pass = st.text_input("Assign Password", type="password")
+                    
                     st.info(f"Make sure the {lbl_grp} exactly matches what {lbl_prof}s use.")
-                    s_grp = st.text_input(f"Assigned {lbl_grp}")
-                    s_subgrp = st.text_input(f"{lbl_sub} (Optional)" if is_school else f"{lbl_sub} (e.g., 1st Year)")
+                    s_grp = st.text_input(f"Assigned {lbl_grp} (e.g., {'Class 10' if is_school else 'Computer Science'})")
+                    s_subgrp = st.text_input(f"{lbl_sub} (e.g., {'Section A' if is_school else '1st Year'})")
                     s_batch = st.text_input("Batch (e.g., 2022-2026)")
+                    
                     if st.form_submit_button("Register Student"):
                         if s_user and s_name and s_pass and s_grp and s_subgrp and s_batch:
                             s_key = f"{st.session_state.institution}_{s_user}"
                             if s_key in students: st.warning("Username already exists.")
                             else:
-                                students[s_key] = {"username": s_user, "name": s_name, "password": s_pass, "institution": st.session_state.institution, "group": s_grp.strip(), "subgroup": s_subgrp.strip(), "batch": s_batch.strip(), "status": "active"}
+                                students[s_key] = {
+                                    "username": s_user, "name": s_name, "password": s_pass, 
+                                    "institution": st.session_state.institution, 
+                                    "group": s_grp.strip(), "subgroup": s_subgrp.strip(), 
+                                    "batch": s_batch.strip(), "status": "active"
+                                }
                                 save_data('students.json', students); st.success("✅ Student Registered!")
                         else: st.warning("Please fill out all required fields.")
 
@@ -321,34 +330,58 @@ if st.session_state.logged_in:
                 active_students = {k: v for k, v in inst_students.items() if v.get("status", "active") == "active"}
                 
                 st.subheader("Manage Active Students")
-                if not active_students: st.info("No active students found.")
+                if not active_students:
+                    st.info("No active students found.")
                 else:
                     depts = sorted(list(set([v.get("group") for v in active_students.values()])))
                     sel_dept = st.selectbox(f"1. Select {lbl_grp}:", depts)
+                    
                     dept_students = {k: v for k, v in active_students.items() if v.get("group") == sel_dept}
                     years = sorted(list(set([v.get("subgroup") for v in dept_students.values()])))
                     sel_year = st.selectbox(f"2. Select {lbl_sub}:", years)
+                    
                     year_students = {k: v for k, v in dept_students.items() if v.get("subgroup") == sel_year}
                     
                     st.markdown("---")
                     st.write(f"**Students in {sel_dept} - {sel_year} ({len(year_students)})**")
                     for sk, sv in year_students.items():
-                        c1, c2 = st.columns([4, 1])
-                        with c1: st.write(f"🎓 **{sv.get('name')}** (@{sv.get('username')}) | Batch: {sv.get('batch', 'N/A')}")
-                        with c2:
-                            if st.button("Remove", key=f"del_s_{sk}"): del students[sk]; save_data('students.json', students); st.rerun()
+                        # --- NEW INDIVIDUAL STUDENT EDITING ---
+                        with st.expander(f"🎓 {sv.get('name')} (@{sv.get('username')}) | Batch: {sv.get('batch', 'N/A')}"):
+                            col1, col2, col3 = st.columns(3)
+                            with col1:
+                                ind_grp = st.text_input(f"Update {lbl_grp}", value=sv.get('group', ''), key=f"ig_{sk}")
+                            with col2:
+                                ind_sub = st.text_input(f"Update {lbl_sub}", value=sv.get('subgroup', ''), key=f"is_{sk}")
+                            with col3:
+                                st.write("") # Alignment spacing
+                                if st.button("💾 Save Profile", key=f"save_{sk}", type="primary", use_container_width=True):
+                                    students[sk]['group'] = ind_grp.strip()
+                                    students[sk]['subgroup'] = ind_sub.strip()
+                                    save_data('students.json', students)
+                                    st.rerun()
+                                    
+                            if st.button("🗑️ Remove Student", key=f"del_s_{sk}"):
+                                del students[sk]; save_data('students.json', students); st.rerun()
                                 
                     st.markdown("---")
                     st.subheader("⚙️ Bulk Group Actions")
                     c1, c2 = st.columns(2)
                     with c1:
-                        st.write(f"**Promote Entire {lbl_sub}**")
-                        new_year = st.text_input(f"New {lbl_sub} Name:", placeholder=f"e.g., 2nd Year")
-                        if st.button(f"🚀 Promote {lbl_grp}", type="primary"):
-                            if new_year:
-                                for sk in year_students.keys(): students[sk]["subgroup"] = new_year.strip()
-                                save_data('students.json', students); st.success(f"Promoted to {new_year}!"); st.rerun()
-                            else: st.warning(f"Enter the new {lbl_sub} name first.")
+                        st.write(f"**Promote Entire Group**")
+                        # --- NEW FULL BULK PROMOTION LOGIC ---
+                        new_grp = st.text_input(f"New {lbl_grp} Name:", placeholder=f"e.g., {'Class 6' if is_school else 'Computer Science'}")
+                        new_sub = st.text_input(f"New {lbl_sub} Name:", placeholder=f"e.g., {'Section A' if is_school else '2nd Year'}")
+                        
+                        if st.button(f"🚀 Bulk Promote", type="primary"):
+                            if new_grp and new_sub:
+                                for sk in year_students.keys(): 
+                                    students[sk]["group"] = new_grp.strip()
+                                    students[sk]["subgroup"] = new_sub.strip()
+                                save_data('students.json', students)
+                                st.success(f"Promoted to {new_grp} - {new_sub}!")
+                                st.rerun()
+                            else: 
+                                st.warning(f"Enter both the new {lbl_grp} and {lbl_sub} names first.")
                     with c2:
                         st.write("**Mark as Graduated / Alumni**")
                         if st.button("🎓 Graduate Group", type="primary"):
@@ -361,13 +394,16 @@ if st.session_state.logged_in:
                 inst_students = {k: v for k, v in students.items() if isinstance(v, dict) and v.get("institution") == st.session_state.institution}
                 grad_students = {k: v for k, v in inst_students.items() if v.get("status") == "graduated"}
                 
-                if not grad_students: st.info("No graduated students on record.")
+                if not grad_students:
+                    st.info("No graduated students on record.")
                 else:
                     batches = sorted(list(set([v.get("batch", "Unknown") for v in grad_students.values()])))
                     sel_batch = st.selectbox("1. Select Batch:", batches)
+                    
                     batch_students = {k: v for k, v in grad_students.items() if v.get("batch", "Unknown") == sel_batch}
                     depts = sorted(list(set([v.get("group") for v in batch_students.values()])))
                     sel_dept = st.selectbox(f"2. Select {lbl_grp}:", depts, key="grad_dept_sel")
+                    
                     final_grads = {k: v for k, v in batch_students.items() if v.get("group") == sel_dept}
                     
                     st.markdown("---")
@@ -376,13 +412,14 @@ if st.session_state.logged_in:
                         c1, c2 = st.columns([4, 1])
                         with c1: st.write(f"🎓 **{sv.get('name')}** (@{sv.get('username')}) | Final {lbl_sub}: {sv.get('subgroup', 'N/A')}")
                         with c2:
-                            if st.button("Delete Record", key=f"del_g_{sk}"): del students[sk]; save_data('students.json', students); st.rerun()
+                            if st.button("Delete Record", key=f"del_g_{sk}"):
+                                del students[sk]; save_data('students.json', students); st.rerun()
 
             with admin_tab6:
                 st.subheader("Institution Account Deletion")
                 with st.form("del_req_form", clear_on_submit=True):
-                    st.warning("⚠️ DISCLAIMER: Your account will be scheduled for permanent deletion.")
-                    confirm_del = st.checkbox("I confirm my deletion request.")
+                    st.warning("⚠️ DISCLAIMER: Your account will be scheduled for permanent deletion inside a 3-day window once approved by the Platform Administrator. You can undo this request anytime within the due date by logging back into this Admin portal and clicking Recover Account.")
+                    confirm_del = st.checkbox("I have read the disclaimer and confirm my deletion request.")
                     if st.form_submit_button("Submit Deletion Request", type="primary"):
                         if confirm_del:
                             reqs = load_data('deletion_requests.json')
@@ -442,7 +479,6 @@ if st.session_state.logged_in:
                     if new_t: 
                         tests_db = load_data('tests.json')
                         t_key = f"{st.session_state.institution}_{st.session_state.prof_dept}_{st.session_state.prof_subject}_{new_t.strip()}"
-                        # --- SAVING DATE CREATED ---
                         tests_db[t_key] = {"time_limit": t_limit, "timer_enabled": timer_enabled, "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
                         save_data('tests.json', tests_db)
                         st.session_state.prof_test = new_t.strip(); st.rerun()
@@ -465,7 +501,11 @@ if st.session_state.logged_in:
                     if st.form_submit_button("Save Question"):
                         if q_txt and oa and ob and oc and od:
                             qs = load_data('questions.json')
-                            qs.append({"professor": st.session_state.username, "institution": st.session_state.institution, "department": st.session_state.prof_dept, "subject": st.session_state.prof_subject, "test_name": st.session_state.prof_test, "question": q_txt, "A": oa, "B": ob, "C": oc, "D": od, "answer": ans})
+                            qs.append({
+                                "professor": st.session_state.username, "institution": st.session_state.institution, 
+                                "department": st.session_state.prof_dept, "subject": st.session_state.prof_subject, 
+                                "test_name": st.session_state.prof_test, "question": q_txt, "A": oa, "B": ob, "C": oc, "D": od, "answer": ans
+                            })
                             save_data('questions.json', qs); st.success("✅ Saved!")
                         else: st.error("Please fill out all fields.")
                 
@@ -475,7 +515,10 @@ if st.session_state.logged_in:
 
             with tab2:
                 qs = load_data('questions.json')
-                my_qs = [q for q in qs if isinstance(q, dict) and q.get("professor") == st.session_state.username and q.get("department") == st.session_state.prof_dept and q.get("subject") == st.session_state.prof_subject and q.get("test_name") == st.session_state.prof_test]
+                my_qs = [
+                    q for q in qs if isinstance(q, dict) and q.get("professor") == st.session_state.username 
+                    and q.get("department") == st.session_state.prof_dept and q.get("subject") == st.session_state.prof_subject and q.get("test_name") == st.session_state.prof_test
+                ]
                 for i, q in enumerate(my_qs):
                     with st.expander(f"Q{i+1}: {q.get('question', '')[:50]}..."):
                         st.write(f"**A:** {q.get('A')} | **B:** {q.get('B')} | **C:** {q.get('C')} | **D:** {q.get('D')}")
@@ -484,7 +527,11 @@ if st.session_state.logged_in:
             
             with tab3:
                 scores = load_data('scores.json')
-                f_scores_dict = {k: v for k, v in scores.items() if isinstance(v, dict) and v.get("department") == st.session_state.prof_dept and v.get("subject") == st.session_state.prof_subject and v.get("test_name") == st.session_state.prof_test}
+                f_scores_dict = {
+                    k: v for k, v in scores.items() if isinstance(v, dict) and v.get("department") == st.session_state.prof_dept 
+                    and v.get("subject") == st.session_state.prof_subject and v.get("test_name") == st.session_state.prof_test
+                }
+                
                 reqs = {k: v for k, v in f_scores_dict.items() if v.get("retake_status") == "requested"}
                 if reqs:
                     st.error("🚨 Pending Retake Requests")
@@ -513,16 +560,21 @@ if st.session_state.logged_in:
                         with c1: st.write(f"**#{rank} {s.get('student')}** | Score: {s.get('score')}/{s.get('total')} ({s.get('percentage')}%) | ⏱️ {s.get('total_time_taken_str', 'N/A')}")
                         with c2:
                             ind_csv = "Attempt,Q Number,Time on Question,Question Text,Student Answer,Correct Answer,Status\n"
+                            
                             for attempt_idx, past in enumerate(s.get('past_attempts', [])):
                                 for idx, d in enumerate(past.get('details', []), 1):
                                     status = "Correct" if d.get('student_answer') == d.get('correct_answer') else "Incorrect"
                                     clean_q = str(d.get('question')).replace('"', '""')
-                                    ind_csv += f"Attempt {attempt_idx+1},Q{idx},{d.get('time_spent_str', 'N/A')},\"{clean_q}\",{d.get('student_answer', 'None')},{d.get('correct_answer')},{status}\n"
+                                    q_time = d.get('time_spent_str', 'N/A')
+                                    ind_csv += f"Attempt {attempt_idx+1},Q{idx},{q_time},\"{clean_q}\",{d.get('student_answer', 'None')},{d.get('correct_answer')},{status}\n"
+                            
                             current_idx = len(s.get('past_attempts', [])) + 1
                             for idx, d in enumerate(s.get('details', []), 1):
                                 status = "Correct" if d.get('student_answer') == d.get('correct_answer') else "Incorrect"
                                 clean_q = str(d.get('question')).replace('"', '""')
-                                ind_csv += f"Attempt {current_idx},Q{idx},{d.get('time_spent_str', 'N/A')},\"{clean_q}\",{d.get('student_answer', 'None')},{d.get('correct_answer')},{status}\n"
+                                q_time = d.get('time_spent_str', 'N/A')
+                                ind_csv += f"Attempt {current_idx},Q{idx},{q_time},\"{clean_q}\",{d.get('student_answer', 'None')},{d.get('correct_answer')},{status}\n"
+                                
                             safe_name = re.sub(r'[^A-Za-z0-9]', '_', s.get('student'))
                             st.download_button("📥 Individual Report", data=ind_csv, file_name=f"{safe_name}_{st.session_state.prof_test}.csv", key=f"dl_ind_{rank}")
 
@@ -531,15 +583,13 @@ if st.session_state.logged_in:
         lbl_grp = "Class" if st.session_state.inst_type == "School" else "Department"
         lbl_sub = "Section" if st.session_state.inst_type == "School" else "Year"
         
-        # Top Information Bar
         c_info, c_home = st.columns([4, 1])
         with c_info:
             st.write(f"🎓 **{st.session_state.institution}** | 👤 {st.session_state.student_name} | 📂 {lbl_grp}: {st.session_state.student_group}")
         with c_home:
             if st.session_state.student_view_subject is not None and st.session_state.active_test_key is None:
                 if st.button("🏠 Home", use_container_width=True):
-                    st.session_state.student_view_subject = None
-                    st.session_state.student_view_test = None
+                    st.session_state.update({'student_view_subject': None, 'student_view_test': None})
                     st.rerun()
         st.markdown("---")
         
@@ -549,7 +599,6 @@ if st.session_state.logged_in:
         if not dept_qs: 
             st.info(f"No classes or tests are currently available for your {lbl_grp}.")
         else:
-            # --- DASHBOARD STATE 1: SUBJECT GRID ---
             if st.session_state.student_view_subject is None:
                 st.subheader("📚 My Subjects")
                 subs = sorted(list(set([q.get("subject", "General") for q in dept_qs])))
@@ -563,10 +612,8 @@ if st.session_state.logged_in:
                         </div>
                         """, unsafe_allow_html=True)
                         if st.button("Open Class", key=f"sub_btn_{sub}", use_container_width=True):
-                            st.session_state.student_view_subject = sub
-                            st.rerun()
+                            st.session_state.student_view_subject = sub; st.rerun()
 
-            # --- DASHBOARD STATE 2: TEST TIMELINE ---
             elif st.session_state.student_view_test is None:
                 st.subheader(f"📘 {st.session_state.student_view_subject} (Available Tests)")
                 st.markdown("---")
@@ -593,11 +640,9 @@ if st.session_state.logged_in:
                         st.caption(f"📅 Conducted on: {display_date}")
                     with c2:
                         if st.button("Open Test", key=f"open_t_{t_item['name']}", use_container_width=True):
-                            st.session_state.student_view_test = t_item['name']
-                            st.rerun()
+                            st.session_state.student_view_test = t_item['name']; st.rerun()
                     st.markdown("---")
 
-            # --- DASHBOARD STATE 3: TEST EXECUTION ENGINE ---
             else:
                 sel_sub = st.session_state.student_view_subject
                 sel_test = st.session_state.student_view_test
@@ -605,8 +650,7 @@ if st.session_state.logged_in:
                 
                 if st.session_state.active_test_key is None:
                     if st.button("⬅️ Back to Test List"):
-                        st.session_state.student_view_test = None
-                        st.rerun()
+                        st.session_state.student_view_test = None; st.rerun()
                         
                 sub_qs = [q for q in dept_qs if q.get("subject") == sel_sub]
                 final_qs = [q for q in sub_qs if q.get("test_name") == sel_test]
